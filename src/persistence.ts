@@ -65,7 +65,6 @@ const DEBOUNCE_MS = 2000;
 export function persistState(_pi: ExtensionAPI, state: PersistentState): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    state.lastInteraction = Date.now();
     writeStateFile(state);
     saveTimer = null;
   }, DEBOUNCE_MS);
@@ -73,7 +72,6 @@ export function persistState(_pi: ExtensionAPI, state: PersistentState): void {
 
 export function flushState(state: PersistentState): void {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-  state.lastInteraction = Date.now();
   writeStateFile(state);
 }
 

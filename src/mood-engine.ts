@@ -156,24 +156,25 @@ export class MoodEngine {
     let force = event.force;
     const t = this.soul.traits;
 
-    // 判断事件方向 (正向/负向)
-    const arc = this.shortestArc(this.state.angle, event.targetAngle);
-    const isNegativePush = Math.abs(arc) > 90 && this.shortestArc(0, event.targetAngle) > 45;
+    // 事件语义由 trigger 显式声明，不从轮盘几何位置推断。
+    // 同一个负向事件在靠近目标情绪时仍然是负向，否则重复失败会被误判成正向强化。
+    const isNegativePush = event.valence === "negative";
+    const isPositivePush = event.valence === "positive";
 
     // 傲娇压制正向推力
-    if (t.tsundere > 0.5 && !isNegativePush) {
+    if (t.tsundere > 0.5 && isPositivePush) {
       force *= 1 - t.tsundere * 0.3;
     }
 
     // 神经质：负向事件推力放大，正向推力压制
     if (isNegativePush) {
       force *= 1 + t.neuroticism * 0.5;
-    } else {
+    } else if (isPositivePush) {
       force *= 1 - t.neuroticism * 0.2;
     }
 
     // 外向性：正向推力放大
-    if (!isNegativePush) {
+    if (isPositivePush) {
       force *= 1 + t.extraversion * 0.4;
     }
 
@@ -210,6 +211,10 @@ export class MoodEngine {
     const aboveBaseline = Math.max(0, this.state.intensity - MoodEngine.BASELINE);
     const retained = aboveBaseline * Math.exp(-lambda * elapsed);
     this.state.intensity = MoodEngine.BASELINE + retained;
+
+    // 当前情绪坐标已经推进到 now；持久化时间戳必须跟坐标同源，
+    // 不能由写盘层擅自刷新，否则会吃掉跨会话衰减时间。
+    this.persistent.lastInteraction = now;
 
     // 角度回归 (极慢, 仅在接近基线时生效)
     if (this.state.intensity < MoodEngine.BASELINE + 0.05) {

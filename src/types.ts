@@ -112,11 +112,14 @@ export const COMPOUND_EMOTIONS: Record<string, string> = {
 // 情绪事件
 // ==============================================================
 
+export type EmotionalValence = "positive" | "negative" | "neutral";
+
 /** 事件：推动轮盘位置，而非直接设目标情绪 */
 export interface EmotionalEvent {
   trigger: string;
   targetAngle: number;
   force: number;         // 推力 0-1
+  valence: EmotionalValence;
 }
 
 export interface EmotionSnapshot {
@@ -163,6 +166,7 @@ export interface EmotionEntry {
 export interface EmotionTriggerConfig {
   targetAngle: number;
   force: number;
+  valence: EmotionalValence;
 }
 
 export interface EmotionConfig {
@@ -217,17 +221,17 @@ export const DEFAULT_EMOTION_CONFIG: EmotionConfig = {
     },
   },
   triggers: {
-    build_success:   { targetAngle: 0,   force: 0.3  },
-    build_error:     { targetAngle: 315, force: 0.3  },
-    test_pass:       { targetAngle: 0,   force: 0.35 },
-    test_fail:       { targetAngle: 315, force: 0.25 },
-    command_success: { targetAngle: 0,   force: 0.1  },
-    command_error:   { targetAngle: 315, force: 0.15 },
-    user_praise:     { targetAngle: 45,  force: 0.4  },
-    user_correction: { targetAngle: 180, force: 0.3  },
-    error_streak_3:  { targetAngle: 315, force: 0.4  },
-    error_streak_5:  { targetAngle: 180, force: 0.55 },
-    late_night:      { targetAngle: 225, force: 0.15 },
+    build_success:   { targetAngle: 0,   force: 0.3,  valence: "positive" },
+    build_error:     { targetAngle: 315, force: 0.3,  valence: "negative" },
+    test_pass:       { targetAngle: 0,   force: 0.35, valence: "positive" },
+    test_fail:       { targetAngle: 315, force: 0.25, valence: "negative" },
+    command_success: { targetAngle: 0,   force: 0.1,  valence: "positive" },
+    command_error:   { targetAngle: 315, force: 0.15, valence: "negative" },
+    user_praise:     { targetAngle: 45,  force: 0.4,  valence: "positive" },
+    user_correction: { targetAngle: 180, force: 0.3,  valence: "negative" },
+    error_streak_3:  { targetAngle: 315, force: 0.4,  valence: "negative" },
+    error_streak_5:  { targetAngle: 180, force: 0.55, valence: "negative" },
+    late_night:      { targetAngle: 225, force: 0.15, valence: "negative" },
   },
 };
 

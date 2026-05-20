@@ -53,6 +53,7 @@ export function registerPersonaCommands(
             persistent.lastIntensity,
             persistent.lastInteraction,
           );
+          syncMoodToPersistent(newEngine);
           setEngine(newEngine);
           persistState(pi, newEngine.persistent);
           if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(newEngine));
@@ -61,6 +62,7 @@ export function registerPersonaCommands(
         }
 
         engine.soul = soul;
+        engine.tick();
         syncMoodToPersistent(engine);
         persistState(pi, engine.persistent);
         if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(engine));
