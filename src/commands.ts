@@ -15,7 +15,7 @@ import {
 export function registerPersonaCommands(
   pi: ExtensionAPI,
   getEngine: () => MoodEngine | null,
-  setEngine: (engine: MoodEngine) => void,
+  setEngine: (engine: MoodEngine | null) => void,
 ): void {
   pi.registerCommand("persona", {
     description: "查看或重新加载 pi 的灵魂状态",
@@ -40,7 +40,9 @@ export function registerPersonaCommands(
         const soul = loadSoul();
         const engine = getEngine();
         if (!soul) {
-          ctx.ui.notify("未找到可加载的 ~/.pi/agent/SOUL.md，灵魂未激活。", "warning");
+          setEngine(null);
+          if (ctx.hasUI) ctx.ui.setStatus("soul-mood", "");
+          ctx.ui.notify("未找到可加载的 ~/.pi/agent/SOUL.md，灵魂已停用。", "warning");
           return;
         }
         if (!engine) {

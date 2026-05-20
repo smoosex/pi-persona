@@ -10,9 +10,14 @@ import type { PersistentState } from "./types.js";
 const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "soul-state.json");
 
 function isPersistentState(data: unknown): data is PersistentState {
-  if (!data || typeof data !== "object") return false;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
   const state = data as Record<string, unknown>;
+  const keys = Object.keys(state);
   return (
+    keys.length === 3 &&
+    keys.includes("lastInteraction") &&
+    keys.includes("lastAngle") &&
+    keys.includes("lastIntensity") &&
     typeof state.lastInteraction === "number" &&
     typeof state.lastAngle === "number" &&
     typeof state.lastIntensity === "number"
