@@ -1,9 +1,6 @@
 // ============================================================
 // pi-persona — 扩展入口
 // ============================================================
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MoodEngine } from "../src/mood-engine.js";
 import {
@@ -12,7 +9,6 @@ import {
   flushState,
   syncMoodToPersistent,
 } from "../src/persistence.js";
-import { loadSoulConfig } from "../src/config.js";
 import { loadSoul } from "../src/soul-loader.js";
 import { getFooterStatusText, tickAndGetFooterText } from "../src/footer.js";
 import { registerPersonaCommands } from "../src/commands.js";
@@ -27,58 +23,41 @@ import {
   DEFAULT_EMOTION_CONFIG,
   nearestEmotion,
 } from "../src/types.js";
-import type { SoulConfig, EmotionChange } from "../src/types.js";
+import type { EmotionChange } from "../src/types.js";
 
 let currentEngine: MoodEngine | null = null;
 let hooksRegistered = false;
-let soulConfig: SoulConfig;
 let lastLateNightTrigger = 0;
 const LATE_NIGHT_COOLDOWN_MS = 30 * 60 * 1000; // 30 分钟
 
-function loadPersonaSettings(): Partial<SoulConfig> {
-  try {
-    const settingsPath = path.join(
-      os.homedir(),
-      ".pi",
-      "agent",
-      "settings.json",
-    );
-    const raw = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-    return raw?.persona ?? {};
-  } catch {
-    return {};
-  }
-}
-
 export default function personaExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
-    soulConfig = loadSoulConfig(loadPersonaSettings());
+    const persistent = restorePersistentState();
 
-    let entries: any[] = [];
-    try {
-      entries = ctx.sessionManager?.getBranch() ?? [];
-    } catch {}
-    const persistent = restorePersistentState(
-      entries,
-      soulConfig.defaultSoul,
-    );
+    if (!hooksRegistered) {
+      registerAllHooks(pi);
+      registerPersonaCommands(pi, () => currentEngine, (engine) => {
+        currentEngine = engine;
+      });
+      hooksRegistered = true;
+    }
 
-    let soulDef = loadSoul(persistent.soulId);
+    const soulDef = loadSoul();
     if (!soulDef) {
-      persistent.soulId = soulConfig.defaultSoul;
-      soulDef = loadSoul(soulConfig.defaultSoul) ?? loadSoul("cat")!;
+      persistState(pi, persistent);
+      if (ctx.hasUI) ctx.ui.setStatus("soul-mood", "");
+      currentEngine = null;
+      return;
     }
 
     currentEngine = new MoodEngine(soulDef, persistent, DEFAULT_EMOTION_CONFIG);
 
     // 从持久化恢复情绪坐标（含时间衰减）
-    if (persistent.lastAngle !== undefined && persistent.lastIntensity !== undefined) {
-      currentEngine.restoreState(
-        persistent.lastAngle,
-        persistent.lastIntensity,
-        persistent.lastInteraction,
-      );
-    }
+    currentEngine.restoreState(
+      persistent.lastAngle,
+      persistent.lastIntensity,
+      persistent.lastInteraction,
+    );
 
     persistState(pi, persistent);
 
@@ -86,11 +65,6 @@ export default function personaExtension(pi: ExtensionAPI) {
       ctx.ui.setStatus("soul-mood", getFooterStatusText(currentEngine));
     }
 
-    if (!hooksRegistered) {
-      registerAllHooks(pi);
-      registerPersonaCommands(pi, () => currentEngine);
-      hooksRegistered = true;
-    }
   });
 
   pi.on("session_shutdown", async () => {
@@ -183,8 +157,11 @@ function registerAllHooks(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async (event, _ctx) => {
     const engine = currentEngine;
-    if (!engine || !engine.persistent.soulId) return;
+    if (!engine) return;
 
+    const soulDef = loadSoul();
+    if (!soulDef) return;
+    engine.soul = soulDef;
     engine.tick();
 
     const addition = engine.getSystemPromptAddition();

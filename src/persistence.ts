@@ -6,16 +6,24 @@ import * as path from "node:path";
 import * as os from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PersistentState } from "./types.js";
-import { SOUL_ENTRY_TYPE } from "./types.js";
-import { loadSoul } from "./soul-loader.js";
 
 const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "soul-state.json");
+
+function isPersistentState(data: unknown): data is PersistentState {
+  if (!data || typeof data !== "object") return false;
+  const state = data as Record<string, unknown>;
+  return (
+    typeof state.lastInteraction === "number" &&
+    typeof state.lastAngle === "number" &&
+    typeof state.lastIntensity === "number"
+  );
+}
 
 function readStateFile(): PersistentState | null {
   try {
     const raw = fs.readFileSync(STATE_FILE, "utf-8");
     const data = JSON.parse(raw);
-    if (data && typeof data.soulId === "string") return data as PersistentState;
+    if (isPersistentState(data)) return data;
   } catch {}
   return null;
 }
@@ -30,31 +38,16 @@ function writeStateFile(state: PersistentState): void {
   }
 }
 
-export function restorePersistentState(
-  sessionEntries: any[],
-  defaultSoulId: string,
-): PersistentState {
+export function restorePersistentState(): PersistentState {
   const now = Date.now();
-  let state: PersistentState | null = readStateFile();
-
-  if (!state) {
-    for (let i = sessionEntries.length - 1; i >= 0; i--) {
-      const entry = sessionEntries[i];
-      if (entry?.type === "custom" && entry.customType === SOUL_ENTRY_TYPE && entry.data) {
-        state = entry.data as PersistentState;
-        break;
-      }
-    }
-  }
+  const state = readStateFile();
 
   if (state) {
     // lastInteraction 保持原文时间戳，衰减由 MoodEngine.restoreState() 使用它计算时间差
     return state;
   }
 
-  const soul = loadSoul(defaultSoulId);
   return {
-    soulId: soul ? soul.id : "cat",
     lastInteraction: now,
     lastAngle: 0,
     lastIntensity: 0.15,
@@ -64,8 +57,7 @@ export function restorePersistentState(
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 const DEBOUNCE_MS = 2000;
 
-export function persistState(pi: ExtensionAPI, state: PersistentState): void {
-  try { pi.appendEntry(SOUL_ENTRY_TYPE, { ...state }); } catch {}
+export function persistState(_pi: ExtensionAPI, state: PersistentState): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     state.lastInteraction = Date.now();

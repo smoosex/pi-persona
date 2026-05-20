@@ -140,7 +140,6 @@ export interface EmotionalState {
 }
 
 export interface PersistentState {
-  soulId: string;
   lastInteraction: number;
   lastAngle: number;
   lastIntensity: number;
@@ -279,29 +278,10 @@ export const DEFAULT_TRAITS: SoulTraits = {
 };
 
 export interface SoulDefinition {
-  id: string;
   name: string;
   emoji: string;
   description: string;
   traits: SoulTraits;
   systemPrompt: string;
-  source: "builtin" | "user" | "project";
 }
 
-// ==============================================================
-// 扩展配置 (settings.json)
-// ==============================================================
-
-export interface SoulConfig {
-  defaultSoul: string;
-  showInFooter: boolean;
-  verboseTriggers: boolean;
-}
-
-export const DEFAULT_SOUL_CONFIG: SoulConfig = {
-  defaultSoul: "cat",
-  showInFooter: true,
-  verboseTriggers: false,
-};
-
-export const SOUL_ENTRY_TYPE = "soul-state";
