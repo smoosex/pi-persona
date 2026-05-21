@@ -116,28 +116,69 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+interface LockOwner {
+  pid: number;
+  token: string;
+  createdAt: number;
+}
+
+function createLockOwner(): LockOwner {
+  return {
+    pid: process.pid,
+    token: `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    createdAt: Date.now(),
+  };
+}
+
+function parseLockOwner(data: unknown): LockOwner | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const owner = data as Record<string, unknown>;
+  if (
+    typeof owner.pid !== "number" ||
+    !Number.isInteger(owner.pid) ||
+    owner.pid <= 0 ||
+    typeof owner.token !== "string" ||
+    owner.token.length === 0 ||
+    typeof owner.createdAt !== "number" ||
+    !Number.isFinite(owner.createdAt)
+  ) {
+    return null;
+  }
+  return { pid: owner.pid, token: owner.token, createdAt: owner.createdAt };
+}
+
+async function readLockOwner(): Promise<LockOwner | null> {
+  const ownerRaw = await fsp.readFile(LOCK_OWNER_FILE, "utf-8");
+  return parseLockOwner(JSON.parse(ownerRaw));
+}
+
 async function clearStaleLockIfNeeded(now: number = Date.now()): Promise<void> {
   try {
-    const ownerRaw = await fsp.readFile(LOCK_OWNER_FILE, "utf-8");
-    const owner = JSON.parse(ownerRaw) as { pid?: unknown; createdAt?: unknown };
-    const createdAt = typeof owner.createdAt === "number" && Number.isFinite(owner.createdAt)
-      ? owner.createdAt
-      : 0;
-    const pid = typeof owner.pid === "number" && Number.isInteger(owner.pid) && owner.pid > 0
-      ? owner.pid
-      : null;
-    const stale = now - createdAt > STALE_LOCK_MS;
-    const ownerDead = pid === null || !isProcessAlive(pid);
-    if (stale || ownerDead) {
+    const owner = await readLockOwner();
+    if (!owner) throw new Error("Invalid lock owner");
+    if (!isProcessAlive(owner.pid)) {
       await fsp.rm(LOCK_DIR, { recursive: true, force: true });
     }
-  } catch {
-    try {
-      const stat = await fsp.stat(LOCK_DIR);
-      if (now - stat.mtimeMs > STALE_LOCK_MS) {
-        await fsp.rm(LOCK_DIR, { recursive: true, force: true });
-      }
-    } catch {}
+    return;
+  } catch {}
+
+  try {
+    const stat = await fsp.stat(LOCK_DIR);
+    if (now - stat.mtimeMs > STALE_LOCK_MS) {
+      await fsp.rm(LOCK_DIR, { recursive: true, force: true });
+    }
+  } catch {}
+}
+
+async function releaseStateLock(owner: LockOwner): Promise<void> {
+  try {
+    const current = await readLockOwner();
+    if (current?.pid === owner.pid && current.token === owner.token) {
+      await fsp.rm(LOCK_DIR, { recursive: true, force: true });
+    }
+  } catch (err) {
+    if (isErrnoException(err) && err.code === "ENOENT") return;
+    throw err;
   }
 }
 
@@ -148,19 +189,18 @@ async function acquireStateLock(): Promise<() => Promise<void>> {
   while (true) {
     try {
       await fsp.mkdir(LOCK_DIR);
+      const owner = createLockOwner();
       try {
         await fsp.writeFile(
           LOCK_OWNER_FILE,
-          JSON.stringify({ pid: process.pid, createdAt: Date.now() }, null, 2),
+          JSON.stringify(owner, null, 2),
           "utf-8",
         );
       } catch (err) {
         await fsp.rm(LOCK_DIR, { recursive: true, force: true }).catch(() => {});
         throw err;
       }
-      return async () => {
-        await fsp.rm(LOCK_DIR, { recursive: true, force: true });
-      };
+      return () => releaseStateLock(owner);
     } catch (err) {
       if (!isErrnoException(err) || err.code !== "EEXIST") throw err;
       await clearStaleLockIfNeeded();
