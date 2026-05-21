@@ -6,35 +6,35 @@
 export type Emotion =
   | "joy"           // 喜悦 — 0°
   | "trust"         // 信任 — 45°
-  | "anticipation"  // 期待 — 90°
+  | "fear"          // 恐惧 — 90°
   | "surprise"      // 惊讶 — 135°
   | "sadness"       // 悲伤 — 180°
   | "disgust"       // 厌恶 — 225°
-  | "fear"          // 恐惧 — 270°
-  | "anger";        // 愤怒 — 315°
+  | "anger"         // 愤怒 — 270°
+  | "anticipation"; // 期待 — 315°
 
 /** 情绪在轮盘上的角度 */
 export const EMOTION_ANGLE: Record<Emotion, number> = {
   joy: 0,
   trust: 45,
-  anticipation: 90,
+  fear: 90,
   surprise: 135,
   sadness: 180,
   disgust: 225,
-  fear: 270,
-  anger: 315,
+  anger: 270,
+  anticipation: 315,
 };
 
 /** 显式顺序迭代数组，不依赖 Object.entries 插入序 */
-const EMOTION_ENTRIES: readonly (readonly [Emotion, number])[] = [
+export const EMOTION_ENTRIES: readonly (readonly [Emotion, number])[] = [
   ["joy", 0],
   ["trust", 45],
-  ["anticipation", 90],
+  ["fear", 90],
   ["surprise", 135],
   ["sadness", 180],
   ["disgust", 225],
-  ["fear", 270],
-  ["anger", 315],
+  ["anger", 270],
+  ["anticipation", 315],
 ] as const;
 
 /** 根据角度找最近的基本情绪 */
@@ -98,14 +98,14 @@ export const EMOTION_LEVEL_NAMES: Record<Emotion, [string, string, string]> = {
 
 /** 相邻组合 → 次级情绪 (角度落在两个情绪中点附近时触发) */
 export const COMPOUND_EMOTIONS: Record<string, string> = {
-  "joy_trust":              "love",
-  "trust_anticipation":     "hope",
-  "anticipation_surprise":  "curiosity",
-  "surprise_sadness":       "disappointment",
-  "sadness_disgust":        "remorse",
-  "disgust_anger":          "contempt",
-  "anger_anticipation":     "aggressiveness",
-  "anticipation_joy":       "optimism",
+  "joy_trust":            "love",
+  "trust_fear":           "submission",
+  "fear_surprise":        "awe",
+  "surprise_sadness":     "disappointment",
+  "sadness_disgust":      "remorse",
+  "disgust_anger":        "contempt",
+  "anger_anticipation":   "aggressiveness",
+  "anticipation_joy":     "optimism",
 };
 
 // ==============================================================
@@ -222,14 +222,14 @@ export const DEFAULT_EMOTION_CONFIG: EmotionConfig = {
   },
   triggers: {
     build_success:   { targetAngle: 0,   force: 0.3,  valence: "positive" },
-    build_error:     { targetAngle: 315, force: 0.3,  valence: "negative" },
+    build_error:     { targetAngle: 270, force: 0.3,  valence: "negative" },
     test_pass:       { targetAngle: 0,   force: 0.35, valence: "positive" },
-    test_fail:       { targetAngle: 315, force: 0.25, valence: "negative" },
+    test_fail:       { targetAngle: 270, force: 0.25, valence: "negative" },
     command_success: { targetAngle: 0,   force: 0.1,  valence: "positive" },
-    command_error:   { targetAngle: 315, force: 0.15, valence: "negative" },
+    command_error:   { targetAngle: 270, force: 0.15, valence: "negative" },
     user_praise:     { targetAngle: 45,  force: 0.4,  valence: "positive" },
     user_correction: { targetAngle: 180, force: 0.3,  valence: "negative" },
-    error_streak_3:  { targetAngle: 315, force: 0.4,  valence: "negative" },
+    error_streak_3:  { targetAngle: 270, force: 0.4,  valence: "negative" },
     error_streak_5:  { targetAngle: 180, force: 0.55, valence: "negative" },
     late_night:      { targetAngle: 225, force: 0.15, valence: "negative" },
   },

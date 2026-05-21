@@ -16,6 +16,7 @@ import {
   EMOTION_LABELS,
   EMOTION_LEVEL_NAMES,
   COMPOUND_EMOTIONS,
+  EMOTION_ENTRIES,
   nearestEmotion,
   intensityLevel,
 } from "./types.js";
@@ -251,13 +252,20 @@ export class MoodEngine {
   }
 
   getCompoundLabel(): string | undefined {
-    const a = this.state.angle;
-    const e1 = nearestEmotion((a - 22.5 + 360) % 360);
-    const e2 = nearestEmotion((a + 22.5) % 360);
-    if (e1 === e2) return undefined;
-    const key1 = `${e1}_${e2}`;
-    const key2 = `${e2}_${e1}`;
-    return COMPOUND_EMOTIONS[key1] ?? COMPOUND_EMOTIONS[key2];
+    const a = ((this.state.angle % 360) + 360) % 360;
+    const sectorSize = 45;
+    const compoundWindow = 15;
+
+    // 直接按 Plutchik 相邻扇区算中点，避免 ±22.5° 最近情绪探测在基本情绪中心点产生 tie。
+    const leftIndex = Math.floor(a / sectorSize);
+    const rightIndex = (leftIndex + 1) % EMOTION_ENTRIES.length;
+    const midpoint = leftIndex * sectorSize + sectorSize / 2;
+    if (Math.abs(a - midpoint) > compoundWindow) return undefined;
+
+    const leftEmotion = EMOTION_ENTRIES[leftIndex][0];
+    const rightEmotion = EMOTION_ENTRIES[rightIndex][0];
+    const key = `${leftEmotion}_${rightEmotion}`;
+    return COMPOUND_EMOTIONS[key];
   }
 
   private getCurrentEntry() {
