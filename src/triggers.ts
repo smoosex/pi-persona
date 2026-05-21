@@ -12,10 +12,84 @@ export function createRepeatedErrorState(): RepeatedErrorState {
   return { consecutiveErrors: 0, lastErrorCommand: "" };
 }
 
-// 构建命令匹配
-const BUILD_PATTERN = /npm\s+(run\s+)?build|tsc|go\s+build|cargo\s+build|bun\s+(run\s+)?build|make\b|gradle\s+build|mvn\s+.*?(compile|package|install)/;
-// 测试命令匹配
-const TEST_PATTERN = /npm\s+(run\s+)?test|pytest|go\s+test|cargo\s+test|jest|bun\s+test|vitest|gradle\s+test|mvn\s+test/;
+const COMMAND_SEPARATORS = /&&|\|\||;|\n/;
+const BUILD_SCRIPTS = new Set(["build"]);
+const TEST_SCRIPTS = new Set(["test"]);
+const BUILD_EXECUTABLES = new Set(["tsc", "make"]);
+const TEST_EXECUTABLES = new Set(["pytest", "jest", "vitest"]);
+
+function stripInlineComment(command: string): string {
+  const commentStart = command.search(/(^|\s)#/);
+  return commentStart === -1 ? command : command.slice(0, commentStart).trimEnd();
+}
+
+function tokenizeCommand(command: string): string[] {
+  return stripInlineComment(command).match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+}
+
+function scriptNameAfterRun(tokens: string[]): string | undefined {
+  const runIndex = tokens.indexOf("run");
+  if (runIndex === -1) return undefined;
+
+  return tokens.slice(runIndex + 1).find(token => !token.startsWith("-"));
+}
+
+function normalizeCommandTokens(tokens: string[]): string[] {
+  let index = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[index] ?? "")) index++;
+
+  if (tokens[index] === "env") {
+    index++;
+    while (tokens[index]?.startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[index] ?? "")) index++;
+  }
+
+  if (tokens[index] === "sudo") {
+    index++;
+    while (tokens[index]?.startsWith("-")) index++;
+  }
+
+  return tokens.slice(index);
+}
+
+function isBuildCommandSegment(segment: string): boolean {
+  const tokens = normalizeCommandTokens(tokenizeCommand(segment));
+  if (tokens.length === 0) return false;
+
+  const [executable, subcommand] = tokens;
+  if (BUILD_EXECUTABLES.has(executable)) return true;
+  if (executable === "npm") return subcommand === "run" && BUILD_SCRIPTS.has(scriptNameAfterRun(tokens) ?? "");
+  if (executable === "bun") return BUILD_SCRIPTS.has(subcommand ?? "") || (subcommand === "run" && BUILD_SCRIPTS.has(scriptNameAfterRun(tokens) ?? ""));
+  if (executable === "go" || executable === "cargo" || executable === "gradle") return subcommand === "build";
+  if (executable === "mvn") return tokens.some(token => token === "compile" || token === "package" || token === "install");
+
+  return false;
+}
+
+function isTestCommandSegment(segment: string): boolean {
+  const tokens = normalizeCommandTokens(tokenizeCommand(segment));
+  if (tokens.length === 0) return false;
+
+  const [executable, subcommand] = tokens;
+  if (TEST_EXECUTABLES.has(executable)) return true;
+  if (executable === "npm") return (subcommand === "test") || (subcommand === "run" && TEST_SCRIPTS.has(scriptNameAfterRun(tokens) ?? ""));
+  if (executable === "bun") return (subcommand === "test") || (subcommand === "run" && TEST_SCRIPTS.has(scriptNameAfterRun(tokens) ?? ""));
+  if (executable === "go" || executable === "cargo" || executable === "gradle") return subcommand === "test";
+  if (executable === "mvn") return tokens.includes("test");
+
+  return false;
+}
+
+function splitCommandSegments(command: string): string[] {
+  return command.split(COMMAND_SEPARATORS).map(segment => segment.trim()).filter(Boolean);
+}
+
+function isBuildCommand(command: string): boolean {
+  return splitCommandSegments(command).some(isBuildCommandSegment);
+}
+
+function isTestCommand(command: string): boolean {
+  return splitCommandSegments(command).some(isTestCommandSegment);
+}
 
 export function detectFromBashResult(
   exitCode: number | undefined,
@@ -24,8 +98,8 @@ export function detectFromBashResult(
   config: EmotionConfig,
 ): EmotionalEvent | null {
   const t = config.triggers;
-  const isBuild = BUILD_PATTERN.test(command);
-  const isTest = TEST_PATTERN.test(command);
+  const isBuild = isBuildCommand(command);
+  const isTest = isTestCommand(command);
   // 若工具未回传 exitCode 且未标记 isError，则结果未知：保持沉默，不触发成功/失败情绪。
   const hasSucceeded = exitCode === 0 && !isError;
   const hasFailed = isError || (exitCode !== undefined && exitCode !== 0);
