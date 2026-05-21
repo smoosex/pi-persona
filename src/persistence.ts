@@ -8,7 +8,12 @@ import * as os from "node:os";
 import type { PersistentState } from "./types.js";
 
 const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "soul-state.json");
+const LOCK_DIR = path.join(os.homedir(), ".pi", "agent", "soul-state.lock");
+const LOCK_OWNER_FILE = path.join(LOCK_DIR, "owner.json");
 const FUTURE_INTERACTION_TOLERANCE_MS = 5 * 60 * 1000;
+const LOCK_TIMEOUT_MS = 3000;
+const STALE_LOCK_MS = 30_000;
+const LOCK_RETRY_MS = 50;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -49,6 +54,18 @@ function parsePersistentState(data: unknown, now: number = Date.now()): Persiste
   };
 }
 
+function defaultPersistentState(now: number = Date.now()): PersistentState {
+  return {
+    lastInteraction: now,
+    lastAngle: 0,
+    lastIntensity: 0.15,
+  };
+}
+
+function normalizePersistentState(state: PersistentState, now: number = Date.now()): PersistentState {
+  return parsePersistentState(state, now) ?? defaultPersistentState(now);
+}
+
 function readStateFile(): PersistentState | null {
   try {
     const raw = fs.readFileSync(STATE_FILE, "utf-8");
@@ -58,18 +75,20 @@ function readStateFile(): PersistentState | null {
   return null;
 }
 
-async function writeStateFile(state: PersistentState): Promise<void> {
+async function writeStateFileAtomically(state: PersistentState): Promise<void> {
+  const dir = path.dirname(STATE_FILE);
+  const tmp = path.join(dir, `.${path.basename(STATE_FILE)}.${process.pid}.${Date.now()}.tmp`);
+  await fsp.mkdir(dir, { recursive: true });
   try {
-    const dir = path.dirname(STATE_FILE);
-    await fsp.mkdir(dir, { recursive: true });
-    await fsp.writeFile(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
+    await fsp.writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
+    await fsp.rename(tmp, STATE_FILE);
   } catch (err) {
-    console.error("[pi-persona] 写入状态文件失败:", err);
+    await fsp.rm(tmp, { force: true }).catch(() => {});
+    throw err;
   }
 }
 
 export function restorePersistentState(): PersistentState {
-  const now = Date.now();
   const state = readStateFile();
 
   if (state) {
@@ -77,49 +96,106 @@ export function restorePersistentState(): PersistentState {
     return state;
   }
 
-  return {
-    lastInteraction: now,
-    lastAngle: 0,
-    lastIntensity: 0.15,
-  };
+  return defaultPersistentState();
 }
 
-const DEBOUNCE_MS = 2000;
-
-export interface PersistenceController {
-  persist(state: PersistentState): void;
-  flush(state: PersistentState): Promise<void>;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function createPersistenceController(): PersistenceController {
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingWrite: Promise<void> = Promise.resolve();
+function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && "code" in err;
+}
 
-  function enqueueStateWrite(state: PersistentState): Promise<void> {
-    const snapshot = { ...state };
-    pendingWrite = pendingWrite
-      .catch(() => {})
-      .then(() => writeStateFile(snapshot));
-    return pendingWrite;
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return isErrnoException(err) && err.code === "EPERM";
   }
+}
 
-  return {
-    persist(state: PersistentState): void {
-      if (saveTimer) clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        saveTimer = null;
-        void enqueueStateWrite(state);
-      }, DEBOUNCE_MS);
-    },
-
-    async flush(state: PersistentState): Promise<void> {
-      if (saveTimer) {
-        clearTimeout(saveTimer);
-        saveTimer = null;
+async function clearStaleLockIfNeeded(now: number = Date.now()): Promise<void> {
+  try {
+    const ownerRaw = await fsp.readFile(LOCK_OWNER_FILE, "utf-8");
+    const owner = JSON.parse(ownerRaw) as { pid?: unknown; createdAt?: unknown };
+    const createdAt = typeof owner.createdAt === "number" && Number.isFinite(owner.createdAt)
+      ? owner.createdAt
+      : 0;
+    const pid = typeof owner.pid === "number" && Number.isInteger(owner.pid) && owner.pid > 0
+      ? owner.pid
+      : null;
+    const stale = now - createdAt > STALE_LOCK_MS;
+    const ownerDead = pid === null || !isProcessAlive(pid);
+    if (stale || ownerDead) {
+      await fsp.rm(LOCK_DIR, { recursive: true, force: true });
+    }
+  } catch {
+    try {
+      const stat = await fsp.stat(LOCK_DIR);
+      if (now - stat.mtimeMs > STALE_LOCK_MS) {
+        await fsp.rm(LOCK_DIR, { recursive: true, force: true });
       }
-      await enqueueStateWrite(state);
-    },
-  };
+    } catch {}
+  }
+}
+
+async function acquireStateLock(): Promise<() => Promise<void>> {
+  const startedAt = Date.now();
+  await fsp.mkdir(path.dirname(LOCK_DIR), { recursive: true });
+
+  while (true) {
+    try {
+      await fsp.mkdir(LOCK_DIR);
+      try {
+        await fsp.writeFile(
+          LOCK_OWNER_FILE,
+          JSON.stringify({ pid: process.pid, createdAt: Date.now() }, null, 2),
+          "utf-8",
+        );
+      } catch (err) {
+        await fsp.rm(LOCK_DIR, { recursive: true, force: true }).catch(() => {});
+        throw err;
+      }
+      return async () => {
+        await fsp.rm(LOCK_DIR, { recursive: true, force: true });
+      };
+    } catch (err) {
+      if (!isErrnoException(err) || err.code !== "EEXIST") throw err;
+      await clearStaleLockIfNeeded();
+      if (Date.now() - startedAt > LOCK_TIMEOUT_MS) {
+        throw new Error("Timed out acquiring soul-state lock");
+      }
+      await sleep(LOCK_RETRY_MS);
+    }
+  }
+}
+
+async function withStateLock<T>(fn: () => Promise<T>): Promise<T> {
+  const release = await acquireStateLock();
+  try {
+    return await fn();
+  } finally {
+    await release().catch((err) => {
+      console.error("[pi-persona] 释放状态锁失败:", err);
+    });
+  }
+}
+
+export async function updatePersistentState(
+  updater: (state: PersistentState) => PersistentState | Promise<PersistentState>,
+): Promise<PersistentState> {
+  return withStateLock(async () => {
+    const current = restorePersistentState();
+    const next = normalizePersistentState(await updater(current));
+    await writeStateFileAtomically(next);
+    return next;
+  });
+}
+
+export async function readPersistentStateLocked(): Promise<PersistentState> {
+  return withStateLock(async () => restorePersistentState());
 }
 
 /** 同步引擎情绪坐标到持久化状态 */

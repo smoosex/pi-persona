@@ -9,10 +9,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { MoodEngine } from "../src/mood-engine.js";
 import {
-  createPersistenceController,
   restorePersistentState,
-  syncMoodToPersistent,
 } from "../src/persistence.js";
+import { applyGlobalMoodEvent, refreshGlobalMood } from "../src/global-mood.js";
 import { loadSoul } from "../src/soul-loader.js";
 import { getFooterStatusText, tickAndGetFooterText } from "../src/footer.js";
 import { registerPersonaCommands } from "../src/commands.js";
@@ -29,14 +28,12 @@ import {
   nearestEmotion,
 } from "../src/types.js";
 import type { EmotionChange, EmotionalEvent } from "../src/types.js";
-import type { PersistenceController } from "../src/persistence.js";
 import type { RepeatedErrorState } from "../src/triggers.js";
 
 interface PersonaRuntimeState {
   engine: MoodEngine | null;
   lastLateNightTrigger: number;
   repeatedErrors: RepeatedErrorState;
-  persistence: PersistenceController;
 }
 
 const LATE_NIGHT_COOLDOWN_MS = 30 * 60 * 1000; // 30 分钟
@@ -46,14 +43,11 @@ export default function personaExtension(pi: ExtensionAPI) {
     engine: null,
     lastLateNightTrigger: 0,
     repeatedErrors: createRepeatedErrorState(),
-    persistence: createPersistenceController(),
   };
 
   registerAllHooks(pi, state);
   registerPersonaCommands(pi, () => state.engine, (engine) => {
     state.engine = engine;
-  }, (engine) => {
-    state.persistence.persist(engine.persistent);
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -81,10 +75,8 @@ export default function personaExtension(pi: ExtensionAPI) {
       persistent.lastInteraction,
     );
 
-    // restoreState() 会在内存中执行时间衰减；写回前必须先同步，
-    // 避免把未衰减的 lastAngle / lastIntensity 搭配新的时间戳持久化。
-    syncMoodToPersistent(state.engine);
-    state.persistence.persist(state.engine.persistent);
+    // 在全局锁内基于磁盘最新状态执行自然衰减并写回，避免多进程 stale snapshot 互相覆盖。
+    await refreshGlobalMood(state.engine, true);
 
     if (ctx.hasUI) {
       ctx.ui.setStatus("soul-mood", getFooterStatusText(state.engine));
@@ -94,9 +86,7 @@ export default function personaExtension(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     if (state.engine) {
-      state.engine.tick();
-      syncMoodToPersistent(state.engine);
-      await state.persistence.flush(state.engine.persistent);
+      await refreshGlobalMood(state.engine, true);
     }
     state.engine = null;
     resetRuntimeState(state);
@@ -121,7 +111,7 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
 
     const repeatEvent = detectRepeatedErrors(command, hasFailed, DEFAULT_EMOTION_CONFIG, state.repeatedErrors);
     if (repeatEvent) {
-      applyAndNotify(engine, repeatEvent, ctx);
+      await applyAndNotify(engine, repeatEvent, ctx);
       return;
     }
 
@@ -131,7 +121,7 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
       command,
       DEFAULT_EMOTION_CONFIG,
     );
-    if (bashEvent) applyAndNotify(engine, bashEvent, ctx);
+    if (bashEvent) await applyAndNotify(engine, bashEvent, ctx);
   });
 
   pi.on("agent_end", async (event, ctx) => {
@@ -158,7 +148,7 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
 
     // 同一轮可能包含 steering / follow-up 等多条 user message。
     // 用户反馈情绪只应用最后一个有效事件，避免多句表扬或纠正连续叠加强度。
-    if (lastUserEvent) applyAndNotify(engine, lastUserEvent, ctx);
+    if (lastUserEvent) await applyAndNotify(engine, lastUserEvent, ctx);
 
     // late_night 表示“用户深夜还在互动”，不是“agent 深夜结束了一轮”。
     // 只在本轮真的包含用户消息时触发，避免 retry / follow-up / 工具续跑空转时污染情绪。
@@ -171,15 +161,13 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
         const now = Date.now();
         if (now - state.lastLateNightTrigger >= LATE_NIGHT_COOLDOWN_MS) {
           state.lastLateNightTrigger = now;
-          applyAndNotify(engine, lateEvent, ctx);
+          await applyAndNotify(engine, lateEvent, ctx);
         }
       }
     }
 
-    engine.tick();
+    await refreshGlobalMood(engine, true);
     if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(engine));
-    syncMoodToPersistent(engine);
-    state.persistence.persist(engine.persistent);
     resetErrorStreak(state.repeatedErrors);
   });
 
@@ -196,7 +184,7 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
     const soulDef = loadSoul();
     if (!soulDef) return;
     engine.soul = soulDef;
-    engine.tick();
+    await refreshGlobalMood(engine, true);
 
     const addition = engine.getSystemPromptAddition();
     return {
@@ -220,12 +208,12 @@ function extractUserText(content: Extract<AgentEndEvent["messages"][number], { r
   return content.find((part) => part.type === "text")?.text ?? "";
 }
 
-function applyAndNotify(
+async function applyAndNotify(
   engine: MoodEngine,
   event: EmotionalEvent,
   ctx: ExtensionContext,
-): void {
-  const change: EmotionChange = engine.processEvent(event);
+): Promise<void> {
+  const change: EmotionChange = await applyGlobalMoodEvent(engine, event);
   if (change.notify && ctx.hasUI && change.catchphrase) {
     const emo = nearestEmotion(change.newAngle);
     ctx.ui.notify(

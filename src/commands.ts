@@ -4,7 +4,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MoodEngine } from "./mood-engine.js";
 import { invalidateSoulCache, loadSoul } from "./soul-loader.js";
-import { restorePersistentState, syncMoodToPersistent } from "./persistence.js";
+import { restorePersistentState } from "./persistence.js";
+import { refreshGlobalMood } from "./global-mood.js";
 import { getFooterStatusText } from "./footer.js";
 import {
   DEFAULT_EMOTION_CONFIG,
@@ -16,7 +17,6 @@ export function registerPersonaCommands(
   pi: ExtensionAPI,
   getEngine: () => MoodEngine | null,
   setEngine: (engine: MoodEngine | null) => void,
-  persistEngineState: (engine: MoodEngine) => void,
 ): void {
   pi.registerCommand("persona", {
     description: "查看或重新加载 pi 的灵魂状态",
@@ -32,6 +32,7 @@ export function registerPersonaCommands(
           );
           return;
         }
+        await refreshGlobalMood(engine, false);
         showEmotionDetail(engine, ctx);
         return;
       }
@@ -58,18 +59,15 @@ export function registerPersonaCommands(
             persistent.lastIntensity,
             persistent.lastInteraction,
           );
-          syncMoodToPersistent(newEngine);
+          await refreshGlobalMood(newEngine, true);
           setEngine(newEngine);
-          persistEngineState(newEngine);
           if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(newEngine));
           ctx.ui.notify(`已激活灵魂: ${soul.emoji} ${soul.name}`, "info");
           return;
         }
 
         engine.soul = soul;
-        engine.tick();
-        syncMoodToPersistent(engine);
-        persistEngineState(engine);
+        await refreshGlobalMood(engine, true);
         if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(engine));
         ctx.ui.notify(`已重新加载灵魂: ${soul.emoji} ${soul.name}`, "info");
         return;
