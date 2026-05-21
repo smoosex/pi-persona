@@ -9,9 +9,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { MoodEngine } from "../src/mood-engine.js";
 import {
+  createPersistenceController,
   restorePersistentState,
-  persistState,
-  flushState,
   syncMoodToPersistent,
 } from "../src/persistence.js";
 import { loadSoul } from "../src/soul-loader.js";
@@ -30,12 +29,14 @@ import {
   nearestEmotion,
 } from "../src/types.js";
 import type { EmotionChange, EmotionalEvent } from "../src/types.js";
+import type { PersistenceController } from "../src/persistence.js";
 import type { RepeatedErrorState } from "../src/triggers.js";
 
 interface PersonaRuntimeState {
   engine: MoodEngine | null;
   lastLateNightTrigger: number;
   repeatedErrors: RepeatedErrorState;
+  persistence: PersistenceController;
 }
 
 const LATE_NIGHT_COOLDOWN_MS = 30 * 60 * 1000; // 30 分钟
@@ -45,11 +46,14 @@ export default function personaExtension(pi: ExtensionAPI) {
     engine: null,
     lastLateNightTrigger: 0,
     repeatedErrors: createRepeatedErrorState(),
+    persistence: createPersistenceController(),
   };
 
   registerAllHooks(pi, state);
   registerPersonaCommands(pi, () => state.engine, (engine) => {
     state.engine = engine;
+  }, (engine) => {
+    state.persistence.persist(engine.persistent);
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -80,7 +84,7 @@ export default function personaExtension(pi: ExtensionAPI) {
     // restoreState() 会在内存中执行时间衰减；写回前必须先同步，
     // 避免把未衰减的 lastAngle / lastIntensity 搭配新的时间戳持久化。
     syncMoodToPersistent(state.engine);
-    persistState(pi, state.engine.persistent);
+    state.persistence.persist(state.engine.persistent);
 
     if (ctx.hasUI) {
       ctx.ui.setStatus("soul-mood", getFooterStatusText(state.engine));
@@ -92,7 +96,7 @@ export default function personaExtension(pi: ExtensionAPI) {
     if (state.engine) {
       state.engine.tick();
       syncMoodToPersistent(state.engine);
-      await flushState(state.engine.persistent);
+      await state.persistence.flush(state.engine.persistent);
     }
     state.engine = null;
     resetRuntimeState(state);
@@ -175,7 +179,7 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
     engine.tick();
     if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(engine));
     syncMoodToPersistent(engine);
-    persistState(pi, engine.persistent);
+    state.persistence.persist(engine.persistent);
     resetErrorStreak(state.repeatedErrors);
   });
 

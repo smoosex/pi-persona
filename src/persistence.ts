@@ -5,7 +5,6 @@ import * as fs from "node:fs";
 import { promises as fsp } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PersistentState } from "./types.js";
 
 const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "soul-state.json");
@@ -85,29 +84,42 @@ export function restorePersistentState(): PersistentState {
   };
 }
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingWrite: Promise<void> = Promise.resolve();
 const DEBOUNCE_MS = 2000;
 
-function enqueueStateWrite(state: PersistentState): Promise<void> {
-  const snapshot = { ...state };
-  pendingWrite = pendingWrite
-    .catch(() => {})
-    .then(() => writeStateFile(snapshot));
-  return pendingWrite;
+export interface PersistenceController {
+  persist(state: PersistentState): void;
+  flush(state: PersistentState): Promise<void>;
 }
 
-export function persistState(_pi: ExtensionAPI, state: PersistentState): void {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    void enqueueStateWrite(state);
-  }, DEBOUNCE_MS);
-}
+export function createPersistenceController(): PersistenceController {
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingWrite: Promise<void> = Promise.resolve();
 
-export async function flushState(state: PersistentState): Promise<void> {
-  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-  await enqueueStateWrite(state);
+  function enqueueStateWrite(state: PersistentState): Promise<void> {
+    const snapshot = { ...state };
+    pendingWrite = pendingWrite
+      .catch(() => {})
+      .then(() => writeStateFile(snapshot));
+    return pendingWrite;
+  }
+
+  return {
+    persist(state: PersistentState): void {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        saveTimer = null;
+        void enqueueStateWrite(state);
+      }, DEBOUNCE_MS);
+    },
+
+    async flush(state: PersistentState): Promise<void> {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+      }
+      await enqueueStateWrite(state);
+    },
+  };
 }
 
 /** 同步引擎情绪坐标到持久化状态 */
