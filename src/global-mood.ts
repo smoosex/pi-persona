@@ -62,8 +62,10 @@ export async function applyGlobalMoodEvent(
     replaceEnginePersistent(engine, next);
   } catch (err) {
     console.error("[pi-persona] 应用全局心情事件失败，已降级为本地更新:", err);
-    change = engine.processEvent(event);
-    syncMoodToPersistent(engine);
+    if (!change) {
+      change = engine.processEvent(event);
+      syncMoodToPersistent(engine);
+    }
   }
 
   if (!change) {
