@@ -1,7 +1,7 @@
 // ============================================================
 // pi-persona — 命令注册
 // ============================================================
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { MoodEngine } from "./mood-engine.js";
 import { invalidateSoulCache, loadSoul } from "./soul-loader.js";
 import { restorePersistentState } from "./persistence.js";
@@ -85,7 +85,7 @@ export function registerPersonaCommands(
 // Helpers
 // ============================================================== 
 
-function showEmotionDetail(engine: MoodEngine, ctx: any): void {
+function showEmotionDetail(engine: MoodEngine, ctx: ExtensionCommandContext): void {
   const state = engine.state;
   const emo = engine.getCurrentEmotion();
   const level = engine.getCurrentLevel();
