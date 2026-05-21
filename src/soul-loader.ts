@@ -10,6 +10,12 @@ import matter from "gray-matter";
 import type { SoulDefinition, SoulTraits } from "./types.js";
 import { DEFAULT_TRAITS } from "./types.js";
 
+export type SoulWarningSink = (message: string) => void;
+
+export interface LoadSoulOptions {
+  onWarning?: SoulWarningSink;
+}
+
 // ==============================================================
 // 文件路径
 // ==============================================================
@@ -31,7 +37,7 @@ const NUMERIC_KEYS = [
   "formality", "tsundere", "sarcasm",
 ];
 
-function parseMdFrontmatter(raw: string): Record<string, any> {
+function parseMdFrontmatter(raw: string, onWarning?: SoulWarningSink): Record<string, any> {
   try {
     const parsed = matter(raw);
     const fm: Record<string, any> = parsed.data as Record<string, any>;
@@ -42,7 +48,7 @@ function parseMdFrontmatter(raw: string): Record<string, any> {
 
       const n = typeof value === "number" ? value : Number(value);
       if (!Number.isFinite(n) || n < 0 || n > 1) {
-        console.warn(
+        onWarning?.(
           `[pi-persona] IDENTIFY.md 字段 ${key} 必须是 0 到 1 之间的数字，当前值 ${JSON.stringify(value)} 无效，已使用默认值。`,
         );
         delete fm[key];
@@ -105,10 +111,12 @@ function buildSoul(metadata: Record<string, any>, systemPrompt: string): SoulDef
 // ==============================================================
 
 let cachedSoul: SoulDefinition | null | undefined = undefined;
+let cachedWarnings: string[] = [];
 
 /** 清除灵魂缓存，/persona reload 时调用 */
 export function invalidateSoulCache(): void {
   cachedSoul = undefined;
+  cachedWarnings = [];
 }
 
 /**
@@ -121,12 +129,22 @@ export function invalidateSoulCache(): void {
  *
  * IDENTIFY.md 中的 id 字段会被忽略；当前实现不再需要唯一 id。
  */
-export function loadSoul(): SoulDefinition | null {
-  if (cachedSoul !== undefined) return cachedSoul;
+export function loadSoul(options: LoadSoulOptions = {}): SoulDefinition | null {
+  if (cachedSoul !== undefined) {
+    for (const warning of cachedWarnings) options.onWarning?.(warning);
+    return cachedSoul;
+  }
+
+  const warnings: string[] = [];
+  const onWarning = (message: string) => {
+    warnings.push(message);
+    options.onWarning?.(message);
+  };
 
   const soulPath = userSoulFile();
   const systemPrompt = readMdBody(soulPath);
   if (!systemPrompt) {
+    cachedWarnings = warnings;
     cachedSoul = null;
     return null;
   }
@@ -134,11 +152,12 @@ export function loadSoul(): SoulDefinition | null {
   let metadata: Record<string, any> = {};
   try {
     const identifyRaw = fs.readFileSync(userIdentifyFile(), "utf-8");
-    metadata = parseMdFrontmatter(identifyRaw);
+    metadata = parseMdFrontmatter(identifyRaw, onWarning);
   } catch {
     metadata = {};
   }
 
+  cachedWarnings = warnings;
   cachedSoul = buildSoul(metadata, systemPrompt);
   return cachedSoul;
 }

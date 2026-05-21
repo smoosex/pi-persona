@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "为 pi 注入拟人化情感性格 — pi 会开心、会沮丧、会傲娇、会跟你建立默契",
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "keywords": ["pi-package", "personality", "mood", "emotion"],
   "author": "",
   "license": "MIT",

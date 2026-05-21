@@ -37,7 +37,11 @@ export function registerPersonaCommands(
 
       if (arg === "reload") {
         invalidateSoulCache();
-        const soul = loadSoul();
+        const soul = loadSoul({
+          onWarning: (message) => {
+            if (ctx.hasUI) ctx.ui.notify(message, "warning");
+          },
+        });
         const engine = getEngine();
         if (!soul) {
           setEngine(null);

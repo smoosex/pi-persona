@@ -2,6 +2,7 @@
 // pi-persona — 持久化
 // ============================================================
 import * as fs from "node:fs";
+import { promises as fsp } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -33,11 +34,11 @@ function readStateFile(): PersistentState | null {
   return null;
 }
 
-function writeStateFile(state: PersistentState): void {
+async function writeStateFile(state: PersistentState): Promise<void> {
   try {
     const dir = path.dirname(STATE_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
   } catch (err) {
     console.error("[pi-persona] 写入状态文件失败:", err);
   }
@@ -60,19 +61,28 @@ export function restorePersistentState(): PersistentState {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingWrite: Promise<void> = Promise.resolve();
 const DEBOUNCE_MS = 2000;
+
+function enqueueStateWrite(state: PersistentState): Promise<void> {
+  const snapshot = { ...state };
+  pendingWrite = pendingWrite
+    .catch(() => {})
+    .then(() => writeStateFile(snapshot));
+  return pendingWrite;
+}
 
 export function persistState(_pi: ExtensionAPI, state: PersistentState): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    writeStateFile(state);
     saveTimer = null;
+    void enqueueStateWrite(state);
   }, DEBOUNCE_MS);
 }
 
-export function flushState(state: PersistentState): void {
+export async function flushState(state: PersistentState): Promise<void> {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-  writeStateFile(state);
+  await enqueueStateWrite(state);
 }
 
 /** 同步引擎情绪坐标到持久化状态 */

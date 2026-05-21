@@ -55,7 +55,11 @@ export default function personaExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const persistent = restorePersistentState();
 
-    const soulDef = loadSoul();
+    const soulDef = loadSoul({
+      onWarning: (message) => {
+        if (ctx.hasUI) ctx.ui.notify(message, "warning");
+      },
+    });
     if (!soulDef) {
       if (ctx.hasUI) ctx.ui.setStatus("soul-mood", "");
       state.engine = null;
@@ -88,7 +92,7 @@ export default function personaExtension(pi: ExtensionAPI) {
     if (state.engine) {
       state.engine.tick();
       syncMoodToPersistent(state.engine);
-      flushState(state.engine.persistent);
+      await flushState(state.engine.persistent);
     }
     state.engine = null;
     resetRuntimeState(state);
