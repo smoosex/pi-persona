@@ -9,27 +9,52 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PersistentState } from "./types.js";
 
 const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "soul-state.json");
+const FUTURE_INTERACTION_TOLERANCE_MS = 5 * 60 * 1000;
 
-function isPersistentState(data: unknown): data is PersistentState {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeAngle(angle: number): number {
+  return ((angle % 360) + 360) % 360;
+}
+
+function parsePersistentState(data: unknown, now: number = Date.now()): PersistentState | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const state = data as Record<string, unknown>;
   const keys = Object.keys(state);
-  return (
-    keys.length === 3 &&
-    keys.includes("lastInteraction") &&
-    keys.includes("lastAngle") &&
-    keys.includes("lastIntensity") &&
-    typeof state.lastInteraction === "number" &&
-    typeof state.lastAngle === "number" &&
-    typeof state.lastIntensity === "number"
-  );
+  if (
+    keys.length !== 3 ||
+    !keys.includes("lastInteraction") ||
+    !keys.includes("lastAngle") ||
+    !keys.includes("lastIntensity") ||
+    typeof state.lastInteraction !== "number" ||
+    typeof state.lastAngle !== "number" ||
+    typeof state.lastIntensity !== "number" ||
+    !Number.isFinite(state.lastInteraction) ||
+    !Number.isFinite(state.lastAngle) ||
+    !Number.isFinite(state.lastIntensity)
+  ) {
+    return null;
+  }
+
+  const lastInteraction =
+    state.lastInteraction > 0 && state.lastInteraction <= now + FUTURE_INTERACTION_TOLERANCE_MS
+      ? state.lastInteraction
+      : now;
+
+  return {
+    lastInteraction,
+    lastAngle: normalizeAngle(state.lastAngle),
+    lastIntensity: clamp(state.lastIntensity, 0, 1),
+  };
 }
 
 function readStateFile(): PersistentState | null {
   try {
     const raw = fs.readFileSync(STATE_FILE, "utf-8");
     const data = JSON.parse(raw);
-    if (isPersistentState(data)) return data;
+    return parsePersistentState(data);
   } catch {}
   return null;
 }
@@ -49,7 +74,7 @@ export function restorePersistentState(): PersistentState {
   const state = readStateFile();
 
   if (state) {
-    // lastInteraction 保持原文时间戳，衰减由 MoodEngine.restoreState() 使用它计算时间差
+    // 读取时已归一化 angle/intensity；lastInteraction 保留合理时间戳，衰减由 MoodEngine.restoreState() 计算。
     return state;
   }
 
