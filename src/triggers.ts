@@ -26,6 +26,7 @@ export function detectFromBashResult(
   const t = config.triggers;
   const isBuild = BUILD_PATTERN.test(command);
   const isTest = TEST_PATTERN.test(command);
+  // 若工具未回传 exitCode 且未标记 isError，则结果未知：保持沉默，不触发成功/失败情绪。
   const hasSucceeded = exitCode === 0 && !isError;
   const hasFailed = isError || (exitCode !== undefined && exitCode !== 0);
 
