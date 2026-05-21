@@ -222,7 +222,10 @@ function resetRuntimeState(state: PersonaRuntimeState): void {
 function extractUserText(content: Extract<AgentEndEvent["messages"][number], { role: "user" }>["content"]): string {
   if (typeof content === "string") return content;
 
-  return content.find((part) => part.type === "text")?.text ?? "";
+  return content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
 }
 
 async function applyAndNotify(
