@@ -177,14 +177,31 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
     if (ctx.hasUI) ctx.ui.setStatus("soul-mood", tickAndGetFooterText(engine));
   });
 
-  pi.on("before_agent_start", async (event: BeforeAgentStartEvent, _ctx) => {
-    const engine = state.engine;
-    if (!engine) return;
-
+  pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx) => {
     const soulDef = loadSoul();
-    if (!soulDef) return;
-    engine.soul = soulDef;
+    if (!soulDef) {
+      state.engine = null;
+      resetRuntimeState(state);
+      if (ctx.hasUI) ctx.ui.setStatus("soul-mood", "");
+      return;
+    }
+
+    let engine = state.engine;
+    if (!engine) {
+      const persistent = restorePersistentState();
+      engine = new MoodEngine(soulDef, persistent, DEFAULT_EMOTION_CONFIG);
+      engine.restoreState(
+        persistent.lastAngle,
+        persistent.lastIntensity,
+        persistent.lastInteraction,
+      );
+      state.engine = engine;
+    } else {
+      engine.soul = soulDef;
+    }
+
     await refreshGlobalMood(engine, true);
+    if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(engine));
 
     const addition = engine.getSystemPromptAddition();
     return {

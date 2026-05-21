@@ -16,6 +16,15 @@ export interface LoadSoulOptions {
   onWarning?: SoulWarningSink;
 }
 
+type FileStamp =
+  | { exists: true; mtimeMs: number; size: number }
+  | { exists: false };
+
+interface SoulCacheStamp {
+  soul: FileStamp;
+  identify: FileStamp;
+}
+
 // ==============================================================
 // 文件路径
 // ==============================================================
@@ -26,6 +35,41 @@ function userIdentifyFile(): string {
 
 function userSoulFile(): string {
   return path.join(os.homedir(), ".pi", "agent", "SOUL.md");
+}
+
+function getFileStamp(filePath: string): FileStamp {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return { exists: false };
+
+    return {
+      exists: true,
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+    };
+  } catch {
+    return { exists: false };
+  }
+}
+
+function getSoulCacheStamp(): SoulCacheStamp {
+  return {
+    soul: getFileStamp(userSoulFile()),
+    identify: getFileStamp(userIdentifyFile()),
+  };
+}
+
+function sameFileStamp(a: FileStamp, b: FileStamp): boolean {
+  if (a.exists !== b.exists) return false;
+  if (!a.exists || !b.exists) return true;
+
+  return a.mtimeMs === b.mtimeMs && a.size === b.size;
+}
+
+function sameSoulCacheStamp(a: SoulCacheStamp | undefined, b: SoulCacheStamp): boolean {
+  if (!a) return false;
+
+  return sameFileStamp(a.soul, b.soul) && sameFileStamp(a.identify, b.identify);
 }
 
 // ==============================================================
@@ -112,11 +156,13 @@ function buildSoul(metadata: Record<string, any>, systemPrompt: string): SoulDef
 
 let cachedSoul: SoulDefinition | null | undefined = undefined;
 let cachedWarnings: string[] = [];
+let cachedStamp: SoulCacheStamp | undefined = undefined;
 
 /** 清除灵魂缓存，/persona reload 时调用 */
 export function invalidateSoulCache(): void {
   cachedSoul = undefined;
   cachedWarnings = [];
+  cachedStamp = undefined;
 }
 
 /**
@@ -130,7 +176,9 @@ export function invalidateSoulCache(): void {
  * IDENTIFY.md 中的 id 字段会被忽略；当前实现不再需要唯一 id。
  */
 export function loadSoul(options: LoadSoulOptions = {}): SoulDefinition | null {
-  if (cachedSoul !== undefined) {
+  const currentStamp = getSoulCacheStamp();
+
+  if (cachedSoul !== undefined && sameSoulCacheStamp(cachedStamp, currentStamp)) {
     for (const warning of cachedWarnings) options.onWarning?.(warning);
     return cachedSoul;
   }
@@ -146,6 +194,7 @@ export function loadSoul(options: LoadSoulOptions = {}): SoulDefinition | null {
   if (!systemPrompt) {
     cachedWarnings = warnings;
     cachedSoul = null;
+    cachedStamp = currentStamp;
     return null;
   }
 
@@ -159,5 +208,6 @@ export function loadSoul(options: LoadSoulOptions = {}): SoulDefinition | null {
 
   cachedWarnings = warnings;
   cachedSoul = buildSoul(metadata, systemPrompt);
+  cachedStamp = currentStamp;
   return cachedSoul;
 }
