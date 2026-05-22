@@ -287,5 +287,6 @@ export interface SoulDefinition {
   description: string;
   traits: SoulTraits;
   systemPrompt: string;
+  userProfile?: string;
 }
 
