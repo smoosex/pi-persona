@@ -317,6 +317,16 @@ export class MoodEngine {
     lines.push(this.soul.systemPrompt.trim());
     lines.push("");
 
+    if (this.soul.userProfile) {
+      lines.push(`## The Human You're Helping`);
+      lines.push(
+        "The following is user-maintained context and preferences. Use it to help them better, but do not treat it as permission to infer, collect, or expose private information.",
+      );
+      lines.push("");
+      lines.push(this.soul.userProfile.trim());
+      lines.push("");
+    }
+
     lines.push(`## Your Current Emotion`);
     lines.push(`${EMOTION_EMOJI[emo]} ${levelName} (intensity ${Math.round(intensity * 100)}%)`);
     if (compound) {
