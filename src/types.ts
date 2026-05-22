@@ -132,6 +132,12 @@ export interface EmotionSnapshot {
   trigger: string;
 }
 
+export interface PersistentEmotionSnapshot extends EmotionSnapshot {
+  id: string;
+  sessionId: string;
+  sequence: number;
+}
+
 // ==============================================================
 // 运行时状态
 // ==============================================================
@@ -143,9 +149,12 @@ export interface EmotionalState {
 }
 
 export interface PersistentState {
+  version: 2;
   lastInteraction: number;
   lastAngle: number;
   lastIntensity: number;
+  nextHistorySequence: number;
+  history: PersistentEmotionSnapshot[];
 }
 
 // ==============================================================

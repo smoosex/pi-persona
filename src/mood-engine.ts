@@ -82,8 +82,8 @@ export class MoodEngine {
       timestamp: now,
       trigger: event.trigger,
     });
-    if (this.state.history.length > 20) {
-      this.state.history = this.state.history.slice(-20);
+    if (this.state.history.length > 50) {
+      this.state.history = this.state.history.slice(-50);
     }
     this.persistent.lastInteraction = now;
 

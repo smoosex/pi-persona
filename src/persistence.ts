@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import { promises as fsp } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { PersistentState } from "./types.js";
+import type { Emotion, PersistentEmotionSnapshot, PersistentState } from "./types.js";
 
 const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "soul-state.json");
 const LOCK_DIR = path.join(os.homedir(), ".pi", "agent", "soul-state.lock");
@@ -14,6 +14,18 @@ const FUTURE_INTERACTION_TOLERANCE_MS = 5 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 3000;
 const STALE_LOCK_MS = 30_000;
 const LOCK_RETRY_MS = 50;
+export const MAX_PERSISTENT_HISTORY = 50;
+
+const EMOTIONS = new Set<Emotion>([
+  "joy",
+  "trust",
+  "fear",
+  "surprise",
+  "sadness",
+  "disgust",
+  "anger",
+  "anticipation",
+]);
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -23,18 +35,81 @@ function normalizeAngle(angle: number): number {
   return ((angle % 360) + 360) % 360;
 }
 
+function isEmotion(value: unknown): value is Emotion {
+  return typeof value === "string" && EMOTIONS.has(value as Emotion);
+}
+
+function parseHistorySnapshot(data: unknown, now: number): PersistentEmotionSnapshot | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const snap = data as Record<string, unknown>;
+  if (
+    typeof snap.id !== "string" ||
+    snap.id.length === 0 ||
+    typeof snap.sessionId !== "string" ||
+    snap.sessionId.length === 0 ||
+    typeof snap.sequence !== "number" ||
+    !Number.isInteger(snap.sequence) ||
+    snap.sequence < 1 ||
+    typeof snap.angle !== "number" ||
+    typeof snap.intensity !== "number" ||
+    !isEmotion(snap.emotion) ||
+    (snap.level !== 1 && snap.level !== 2 && snap.level !== 3) ||
+    (snap.compound !== undefined && typeof snap.compound !== "string") ||
+    typeof snap.timestamp !== "number" ||
+    typeof snap.trigger !== "string" ||
+    snap.trigger.length === 0 ||
+    !Number.isFinite(snap.angle) ||
+    !Number.isFinite(snap.intensity) ||
+    !Number.isFinite(snap.timestamp)
+  ) {
+    return null;
+  }
+
+  return {
+    id: snap.id,
+    sessionId: snap.sessionId,
+    sequence: snap.sequence,
+    angle: normalizeAngle(snap.angle),
+    intensity: clamp(snap.intensity, 0, 1),
+    emotion: snap.emotion,
+    level: snap.level,
+    ...(snap.compound ? { compound: snap.compound } : {}),
+    timestamp:
+      snap.timestamp > 0 && snap.timestamp <= now + FUTURE_INTERACTION_TOLERANCE_MS
+        ? snap.timestamp
+        : now,
+    trigger: snap.trigger,
+  };
+}
+
+function normalizeHistory(history: unknown, now: number): PersistentEmotionSnapshot[] | null {
+  if (!Array.isArray(history)) return null;
+
+  const seen = new Set<string>();
+  const snapshots: PersistentEmotionSnapshot[] = [];
+  for (const item of history) {
+    const snap = parseHistorySnapshot(item, now);
+    if (!snap || seen.has(snap.id)) return null;
+    seen.add(snap.id);
+    snapshots.push(snap);
+  }
+
+  return snapshots
+    .sort((a, b) => a.sequence - b.sequence || a.timestamp - b.timestamp)
+    .slice(-MAX_PERSISTENT_HISTORY);
+}
+
 function parsePersistentState(data: unknown, now: number = Date.now()): PersistentState | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const state = data as Record<string, unknown>;
-  const keys = Object.keys(state);
   if (
-    keys.length !== 3 ||
-    !keys.includes("lastInteraction") ||
-    !keys.includes("lastAngle") ||
-    !keys.includes("lastIntensity") ||
+    state.version !== 2 ||
     typeof state.lastInteraction !== "number" ||
     typeof state.lastAngle !== "number" ||
     typeof state.lastIntensity !== "number" ||
+    typeof state.nextHistorySequence !== "number" ||
+    !Number.isInteger(state.nextHistorySequence) ||
+    state.nextHistorySequence < 1 ||
     !Number.isFinite(state.lastInteraction) ||
     !Number.isFinite(state.lastAngle) ||
     !Number.isFinite(state.lastIntensity)
@@ -42,23 +117,34 @@ function parsePersistentState(data: unknown, now: number = Date.now()): Persiste
     return null;
   }
 
+  const history = normalizeHistory(state.history, now);
+  if (!history) return null;
+
+  const maxSequence = history.reduce((max, snap) => Math.max(max, snap.sequence), 0);
+  const nextHistorySequence = Math.max(state.nextHistorySequence, maxSequence + 1);
   const lastInteraction =
     state.lastInteraction > 0 && state.lastInteraction <= now + FUTURE_INTERACTION_TOLERANCE_MS
       ? state.lastInteraction
       : now;
 
   return {
+    version: 2,
     lastInteraction,
     lastAngle: normalizeAngle(state.lastAngle),
     lastIntensity: clamp(state.lastIntensity, 0, 1),
+    nextHistorySequence,
+    history,
   };
 }
 
 function defaultPersistentState(now: number = Date.now()): PersistentState {
   return {
+    version: 2,
     lastInteraction: now,
     lastAngle: 0,
     lastIntensity: 0.15,
+    nextHistorySequence: 1,
+    history: [],
   };
 }
 
@@ -92,7 +178,7 @@ export function restorePersistentState(): PersistentState {
   const state = readStateFile();
 
   if (state) {
-    // 读取时已归一化 angle/intensity；lastInteraction 保留合理时间戳，衰减由 MoodEngine.restoreState() 计算。
+    // 读取时已归一化 angle/intensity/history；lastInteraction 保留合理时间戳，衰减由 MoodEngine.restoreState() 计算。
     return state;
   }
 
@@ -238,7 +324,7 @@ export async function readPersistentStateLocked(): Promise<PersistentState> {
   return withStateLock(async () => restorePersistentState());
 }
 
-/** 同步引擎情绪坐标到持久化状态 */
+/** 同步引擎情绪坐标到持久化状态，不改 history。 */
 export function syncMoodToPersistent(engine: { persistent: PersistentState; state: { angle: number; intensity: number } }): void {
   engine.persistent.lastAngle = engine.state.angle;
   engine.persistent.lastIntensity = engine.state.intensity;

@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { MoodEngine } from "./mood-engine.js";
 import { invalidateSoulCache, loadSoul } from "./soul-loader.js";
-import { DEFAULT_EMOTION_CONFIG, type SoulDefinition } from "./types.js";
+import { DEFAULT_EMOTION_CONFIG, type PersistentState, type SoulDefinition } from "./types.js";
 
 function withTemporaryHome(fn: (home: string) => void): void {
   const originalHome = process.env.HOME;
@@ -31,6 +31,17 @@ function writeAgentFile(home: string, fileName: string, content: string): void {
   const agentDir = path.join(home, ".pi", "agent");
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(path.join(agentDir, fileName), content, "utf-8");
+}
+
+function createPersistentState(): PersistentState {
+  return {
+    version: 2,
+    lastInteraction: Date.now(),
+    lastAngle: 0,
+    lastIntensity: 0.1,
+    nextHistorySequence: 1,
+    history: [],
+  };
 }
 
 function createSoul(userProfile?: string): SoulDefinition {
@@ -94,7 +105,7 @@ test("USER.md changes invalidate the cached soul", () => {
 test("MoodEngine injects user profile as a separate human-context section", () => {
   const engine = new MoodEngine(
     createSoul("Name: Sam\nWhat to call them: Sam"),
-    { lastInteraction: Date.now(), lastAngle: 0, lastIntensity: 0.1 },
+    createPersistentState(),
     DEFAULT_EMOTION_CONFIG,
   );
 
@@ -112,7 +123,7 @@ test("MoodEngine injects user profile as a separate human-context section", () =
 test("MoodEngine does not inject human-context section without userProfile", () => {
   const engine = new MoodEngine(
     createSoul(),
-    { lastInteraction: Date.now(), lastAngle: 0, lastIntensity: 0.1 },
+    createPersistentState(),
     DEFAULT_EMOTION_CONFIG,
   );
 
