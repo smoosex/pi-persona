@@ -197,7 +197,7 @@ export class MoodEngine {
   // 自然衰减 (指数渐近 → baseline, 仅神经质调制)
   // ==============================================================
 
-  private static readonly BASELINE = 0.15; // 情绪基线，不会归零
+  private static readonly BASELINE = 0.15; // 情绪自然静息强度
 
   tick(now: number = Date.now()): void {
     const elapsed = (now - this.lastTick) / 1000;
@@ -209,28 +209,14 @@ export class MoodEngine {
     const lambda = this.emotionConfig.lambdaBase / neuroticismFactor;
 
     // 指数渐近: intensity = baseline + (intensity - baseline) × e^(-λ × elapsed)
-    const aboveBaseline = Math.max(0, this.state.intensity - MoodEngine.BASELINE);
-    const retained = aboveBaseline * Math.exp(-lambda * elapsed);
-    this.state.intensity = MoodEngine.BASELINE + retained;
+    // tick 只让强度回归自然静息点；情绪方向 angle 只能由事件改变。
+    const offsetFromBaseline = this.state.intensity - MoodEngine.BASELINE;
+    const retained = offsetFromBaseline * Math.exp(-lambda * elapsed);
+    this.state.intensity = Math.min(1, Math.max(0, MoodEngine.BASELINE + retained));
 
     // 当前情绪坐标已经推进到 now；持久化时间戳必须跟坐标同源，
     // 不能由写盘层擅自刷新，否则会吃掉跨会话衰减时间。
     this.persistent.lastInteraction = now;
-
-    // 角度回归 (极慢, 仅在接近基线时生效)
-    if (this.state.intensity < MoodEngine.BASELINE + 0.05) {
-      const drift = lambda * 80 * elapsed;
-      const arc = this.shortestArc(this.state.angle, 0);
-      if (Math.abs(arc) > 0.5) {
-        this.state.angle =
-          ((this.state.angle + (arc > 0 ? 1 : -1) * Math.min(Math.abs(arc), drift)) % 360 + 360) % 360;
-      }
-    }
-
-    // 强度几乎等于基线且非 joy → 归零
-    if (this.state.intensity <= MoodEngine.BASELINE + 0.01 && nearestEmotion(this.state.angle) !== "joy") {
-      this.state.angle = 0;
-    }
   }
 
   // ==============================================================
