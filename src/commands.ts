@@ -1,7 +1,9 @@
 // ============================================================
 // pi-persona — 命令注册
 // ============================================================
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { MoodEngine } from "./mood-engine.js";
 import { invalidateSoulCache, loadSoul } from "./soul-loader.js";
 import { restorePersistentState } from "./persistence.js";
@@ -33,7 +35,7 @@ export function registerPersonaCommands(
           return;
         }
         await refreshGlobalMood(engine, false);
-        showEmotionDetail(engine, ctx);
+        await showEmotionDetail(engine, ctx);
         return;
       }
 
@@ -85,40 +87,128 @@ export function registerPersonaCommands(
 // Helpers
 // ============================================================== 
 
-function showEmotionDetail(engine: MoodEngine, ctx: ExtensionCommandContext): void {
-  const state = engine.state;
-  const emo = engine.getCurrentEmotion();
-  const level = engine.getCurrentLevel();
-  const levelName = engine.getLevelName();
-  const compound = engine.getCompoundLabel();
-  const lines: string[] = [
-    "",
-    "━━ 当前状态 ━━",
-    "",
-    `  灵魂: ${engine.soul.emoji} ${engine.soul.name}`,
-    `  简介: ${engine.soul.description}`,
-    "",
-    `  情绪: ${EMOTION_EMOJI[emo]} ${EMOTION_LABELS[emo]} / L${level} ${levelName}`,
-    `  复合: ${compound ?? "无"}`,
-    `  描述: ${engine.getEmotionDesc()}`,
-    `  口头禅: ${engine.getEmotionPhrase()}`,
-    `  角度: ${Math.round(state.angle)}°`,
-    `  强度: ${"█".repeat(Math.round(state.intensity * 10))}${"░".repeat(10 - Math.round(state.intensity * 10))} ${Math.round(state.intensity * 100)}%`,
-    "",
-  ];
-  if (state.history.length > 0) {
-    lines.push("  最近情绪变化:");
-    for (const snap of state.history.slice(-5).reverse()) {
-      const time = new Date(snap.timestamp).toLocaleTimeString("zh-CN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const cmpTag = snap.compound ? ` [${snap.compound}]` : "";
-      lines.push(
-        `    ${time} → ${EMOTION_EMOJI[snap.emotion]} ${EMOTION_LABELS[snap.emotion]} / L${snap.level}${cmpTag} (${snap.trigger})`,
-      );
-    }
-    lines.push("");
+async function showEmotionDetail(engine: MoodEngine, ctx: ExtensionCommandContext): Promise<void> {
+  await ctx.ui.custom<void>(
+    (_tui, theme, _keybindings, done) => new PersonaOverlay(theme, engine, done),
+    {
+      overlay: true,
+      overlayOptions: { anchor: "center", width: "54%" },
+    },
+  );
+}
+
+// ==============================================================
+// PersonaOverlay — 浮窗展示灵魂/情绪状态
+// ==============================================================
+
+class PersonaOverlay implements Component {
+  private theme: Theme;
+  private engine: MoodEngine;
+  private done: (result: void) => void;
+
+  constructor(
+    theme: Theme,
+    engine: MoodEngine,
+    done: (result: void) => void,
+  ) {
+    this.theme = theme;
+    this.engine = engine;
+    this.done = done;
   }
-  ctx.ui.notify(lines.join("\n"), "info");
+
+  handleInput(data: string): void {
+    if (matchesKey(data, "escape") || matchesKey(data, "return") || matchesKey(data, "enter")) {
+      this.done();
+    }
+  }
+
+  render(width: number): string[] {
+    const th = this.theme;
+    const w = Math.min(62, width);
+    const innerW = w - 2;
+
+    const pad = (s: string, len: number): string => {
+      const vis = visibleWidth(s);
+      return s + " ".repeat(Math.max(0, len - vis));
+    };
+
+    const row = (content: string): string =>
+      th.fg("border", "│") + pad(truncateToWidth(content, innerW, "…"), innerW) + th.fg("border", "│");
+
+    const labeledRows = (label: string, text: string, color?: "muted" | "dim"): void => {
+      const prefix = ` ${th.fg("accent", label)}  `;
+      const textWidth = Math.max(1, innerW - visibleWidth(prefix));
+      const wrapped = wrapTextWithAnsi(color ? th.fg(color, text) : text, textWidth);
+      if (wrapped.length === 0) {
+        lines.push(row(prefix));
+        return;
+      }
+      lines.push(row(`${prefix}${wrapped[0]}`));
+      const indent = " ".repeat(visibleWidth(prefix));
+      for (const line of wrapped.slice(1, 2)) {
+        lines.push(row(`${indent}${line}`));
+      }
+    };
+
+    const state = this.engine.state;
+    const emo = this.engine.getCurrentEmotion();
+    const level = this.engine.getCurrentLevel();
+    const levelName = this.engine.getLevelName();
+    const compound = this.engine.getCompoundLabel();
+    const bar = Math.round(state.intensity * 10);
+
+    const lines: string[] = [];
+
+    lines.push(th.fg("border", `╭${"─".repeat(innerW)}╮`));
+
+    const title = `${this.engine.soul.emoji} ${this.engine.soul.name}`;
+    lines.push(row(` ${th.bold(th.fg("accent", title))}`));
+
+    const desc = this.engine.soul.description;
+    if (desc) {
+      lines.push(row(` ${th.fg("dim", desc)}`));
+    }
+
+    lines.push(row(""));
+
+    const emotionLabel = `${EMOTION_EMOJI[emo]} ${EMOTION_LABELS[emo]} / L${level} ${levelName}`;
+    labeledRows("情绪:", emotionLabel);
+
+    const compLabel = compound ?? "无";
+    labeledRows("复合:", compLabel, "muted");
+
+    labeledRows("描述:", this.engine.getEmotionDesc());
+    labeledRows("口头禅:", this.engine.getEmotionPhrase(), "muted");
+
+    const angleStr = `${Math.round(state.angle)}°`;
+    labeledRows("角度:", angleStr);
+
+    const intensityBar = `${th.fg("accent", "█".repeat(bar))}${th.fg("dim", "░".repeat(10 - bar))}`;
+    const intensityPct = `${Math.round(state.intensity * 100)}%`;
+    labeledRows("强度:", `${intensityBar} ${intensityPct}`);
+
+    if (state.history.length > 0) {
+      lines.push(row(""));
+      lines.push(row(` ${th.fg("dim", "── 最近情绪变化 ──")}`));
+      for (const snap of state.history.slice(-3).reverse()) {
+        const time = new Date(snap.timestamp).toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const cmpTag = snap.compound ? ` [${snap.compound}]` : "";
+        const entry = `${time} → ${EMOTION_EMOJI[snap.emotion]} ${EMOTION_LABELS[snap.emotion]} / L${snap.level}${cmpTag}`;
+        lines.push(row(`  ${entry}`));
+        lines.push(row(`          (${th.fg("dim", snap.trigger)})`));
+      }
+    }
+
+    lines.push(row(""));
+    lines.push(row(` ${th.fg("dim", "Esc / Enter 关闭")}`));
+    lines.push(th.fg("border", `╰${"─".repeat(innerW)}╯`));
+
+    return lines;
+  }
+
+  invalidate(): void {}
+  dispose(): void {}
 }
