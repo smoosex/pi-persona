@@ -7,8 +7,8 @@ import * as path from "node:path";
 import * as os from "node:os";
 import type { Emotion, PersistentEmotionSnapshot, PersistentState } from "./types.js";
 
-const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "soul-state.json");
-const LOCK_DIR = path.join(os.homedir(), ".pi", "agent", "soul-state.lock");
+const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "mood-state.json");
+const LOCK_DIR = path.join(os.homedir(), ".pi", "agent", "mood-state.lock");
 const LOCK_OWNER_FILE = path.join(LOCK_DIR, "owner.json");
 const FUTURE_INTERACTION_TOLERANCE_MS = 5 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 3000;
@@ -291,7 +291,7 @@ async function acquireStateLock(): Promise<() => Promise<void>> {
       if (!isErrnoException(err) || err.code !== "EEXIST") throw err;
       await clearStaleLockIfNeeded();
       if (Date.now() - startedAt > LOCK_TIMEOUT_MS) {
-        throw new Error("Timed out acquiring soul-state lock");
+        throw new Error("Timed out acquiring mood-state lock");
       }
       await sleep(LOCK_RETRY_MS);
     }
