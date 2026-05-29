@@ -1,7 +1,5 @@
 # pi-persona
 
-English | [简体中文](./README.zh-CN.md)
-
 `pi-persona` is a pi extension that adds a persistent persona and emotional state system to pi. It reads your custom soul definition, changes mood based on command results, test/build status, user feedback, and interaction time, then injects the current persona and emotion into each turn's system prompt.
 
 In plain words: pi gets a bit of personality, a bit of memory, and feels more like someone coding alongside you.
@@ -9,7 +7,7 @@ In plain words: pi gets a bit of personality, a bit of memory, and feels more li
 ## Installation
 
 ```bash
-pi install git:github.com/smoosex/pi-persona
+pi install npm:@smoose/pi-persona
 ```
 
 ## Features
