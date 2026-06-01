@@ -152,6 +152,13 @@ export function resetErrorStreak(state: RepeatedErrorState): void {
 }
 
 export function detectFromUserMessage(text: string, config: EmotionConfig, agreeableness: number): EmotionalEvent | null {
+  const explicitEvent = detectExplicitUserFeedback(text, config, agreeableness);
+  if (explicitEvent) return explicitEvent;
+
+  return null;
+}
+
+export function detectExplicitUserFeedback(text: string, config: EmotionConfig, agreeableness: number): EmotionalEvent | null {
   const t = config.triggers;
   const lower = text.toLowerCase();
 
@@ -167,6 +174,15 @@ export function detectFromUserMessage(text: string, config: EmotionConfig, agree
     return { trigger: "user_praise", ...t.user_praise, force: t.user_praise.force * 0.75 * (0.5 + agreeableness * 0.5) };
 
   return null;
+}
+
+export function detectImplicitAcceptance(config: EmotionConfig, agreeableness: number): EmotionalEvent {
+  const t = config.triggers.implicit_acceptance;
+  return {
+    trigger: "implicit_acceptance",
+    ...t,
+    force: t.force * (0.75 + agreeableness * 0.25),
+  };
 }
 
 export function detectLateNight(config: EmotionConfig, extraversion: number): EmotionalEvent | null {

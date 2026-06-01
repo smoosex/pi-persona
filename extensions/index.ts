@@ -17,8 +17,10 @@ import { getFooterStatusText, tickAndGetFooterText } from "../src/footer.js";
 import { registerPersonaCommands } from "../src/commands.js";
 import {
   createRepeatedErrorState,
+  detectExplicitUserFeedback,
   detectFromBashResult,
   detectFromUserMessage,
+  detectImplicitAcceptance,
   detectRepeatedErrors,
   resetErrorStreak,
   detectLateNight,
@@ -34,6 +36,8 @@ interface PersonaRuntimeState {
   engine: MoodEngine | null;
   lastLateNightTrigger: number;
   repeatedErrors: RepeatedErrorState;
+  pendingImplicitAcceptance: boolean;
+  currentAgentHadNegativeEvent: boolean;
 }
 
 const LATE_NIGHT_COOLDOWN_MS = 30 * 60 * 1000; // 30 分钟
@@ -43,6 +47,8 @@ export default function personaExtension(pi: ExtensionAPI) {
     engine: null,
     lastLateNightTrigger: 0,
     repeatedErrors: createRepeatedErrorState(),
+    pendingImplicitAcceptance: false,
+    currentAgentHadNegativeEvent: false,
   };
 
   registerAllHooks(pi, state);
@@ -98,6 +104,10 @@ export default function personaExtension(pi: ExtensionAPI) {
 // ==============================================================
 
 function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
+  pi.on("agent_start", async () => {
+    state.currentAgentHadNegativeEvent = false;
+  });
+
   pi.on("tool_result", async (event, ctx) => {
     const engine = state.engine;
     if (!engine || event.toolName !== "bash") return;
@@ -111,6 +121,7 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
 
     const repeatEvent = detectRepeatedErrors(command, hasFailed, DEFAULT_EMOTION_CONFIG, state.repeatedErrors);
     if (repeatEvent) {
+      if (repeatEvent.valence === "negative") state.currentAgentHadNegativeEvent = true;
       await applyAndNotify(engine, repeatEvent, ctx);
       return;
     }
@@ -121,7 +132,10 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
       command,
       DEFAULT_EMOTION_CONFIG,
     );
-    if (bashEvent) await applyAndNotify(engine, bashEvent, ctx);
+    if (bashEvent) {
+      if (bashEvent.valence === "negative") state.currentAgentHadNegativeEvent = true;
+      await applyAndNotify(engine, bashEvent, ctx);
+    }
   });
 
   pi.on("agent_end", async (event, ctx) => {
@@ -148,7 +162,14 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
 
     // 同一轮可能包含 steering / follow-up 等多条 user message。
     // 用户反馈情绪只应用最后一个有效事件，避免多句表扬或纠正连续叠加强度。
-    if (lastUserEvent) await applyAndNotify(engine, lastUserEvent, ctx);
+    if (lastUserEvent) {
+      state.pendingImplicitAcceptance = false;
+      await applyAndNotify(engine, lastUserEvent, ctx);
+    } else if (sawUserMessage && !state.currentAgentHadNegativeEvent) {
+      // 用户通常不会额外发一句 “good job” 来省 token。
+      // 若上一轮没有明显失败，且下一轮不是纠错而是继续提新需求，再视为被隐式接受。
+      state.pendingImplicitAcceptance = true;
+    }
 
     // late_night 表示“用户深夜还在互动”，不是“agent 深夜结束了一轮”。
     // 只在本轮真的包含用户消息时触发，避免 retry / follow-up / 工具续跑空转时污染情绪。
@@ -187,6 +208,24 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
     }
 
     let engine = state.engine;
+    if (engine && state.pendingImplicitAcceptance) {
+      const explicitUserEvent = detectExplicitUserFeedback(
+        event.prompt,
+        DEFAULT_EMOTION_CONFIG,
+        engine.soul.traits.agreeableness,
+      );
+      if (explicitUserEvent) {
+        state.pendingImplicitAcceptance = false;
+      } else {
+        state.pendingImplicitAcceptance = false;
+        await applyAndNotify(
+          engine,
+          detectImplicitAcceptance(DEFAULT_EMOTION_CONFIG, engine.soul.traits.agreeableness),
+          ctx,
+        );
+      }
+    }
+
     if (!engine) {
       const persistent = restorePersistentState();
       engine = new MoodEngine(soulDef, persistent, DEFAULT_EMOTION_CONFIG);
@@ -217,6 +256,8 @@ function registerAllHooks(pi: ExtensionAPI, state: PersonaRuntimeState): void {
 function resetRuntimeState(state: PersonaRuntimeState): void {
   state.lastLateNightTrigger = 0;
   resetErrorStreak(state.repeatedErrors);
+  state.pendingImplicitAcceptance = false;
+  state.currentAgentHadNegativeEvent = false;
 }
 
 function extractUserText(content: Extract<AgentEndEvent["messages"][number], { role: "user" }>["content"]): string {

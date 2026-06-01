@@ -159,8 +159,9 @@ Built-in triggers include:
 | `test_fail`       | Tests failed                                |
 | `command_success` | Normal command succeeded                    |
 | `command_error`   | Normal command failed                       |
-| `user_praise`     | User praise                                 |
-| `user_correction` | User says something is wrong or ineffective |
+| `user_praise`          | User praise                                 |
+| `implicit_acceptance`  | User continues with a new request instead of correcting the previous result |
+| `user_correction`      | User says something is wrong or ineffective |
 | `error_streak_3`  | Same kind of error repeated 3 times         |
 | `error_streak_5`  | Same kind of error repeated 5 times         |
 | `late_night`      | Late-night interaction                      |

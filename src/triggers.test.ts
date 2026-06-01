@@ -3,8 +3,10 @@ import test from "node:test";
 
 import {
   createRepeatedErrorState,
+  detectExplicitUserFeedback,
   detectFromBashResult,
   detectFromUserMessage,
+  detectImplicitAcceptance,
   detectLateNight,
   detectRepeatedErrors,
   resetErrorStreak,
@@ -134,6 +136,25 @@ test("detectFromUserMessage recognizes praise and correction", () => {
   assert.ok(correction.force < DEFAULT_EMOTION_CONFIG.triggers.user_correction.force);
   assert.equal(thanks?.trigger, "user_praise");
   assert.equal(detectFromUserMessage("plain message", DEFAULT_EMOTION_CONFIG, 0.5), null);
+});
+
+test("detectExplicitUserFeedback only recognizes explicit praise or correction", () => {
+  assert.equal(
+    detectExplicitUserFeedback("next, change the footer", DEFAULT_EMOTION_CONFIG, 0.5),
+    null,
+  );
+  assert.equal(
+    detectExplicitUserFeedback("还是错，重来", DEFAULT_EMOTION_CONFIG, 0.5)?.trigger,
+    "user_correction",
+  );
+});
+
+test("detectImplicitAcceptance emits a gentle positive event", () => {
+  const event = detectImplicitAcceptance(DEFAULT_EMOTION_CONFIG, 0.5);
+
+  assert.equal(event.trigger, "implicit_acceptance");
+  assert.equal(event.valence, "positive");
+  assert.ok(event.force < DEFAULT_EMOTION_CONFIG.triggers.user_praise.force);
 });
 
 test("detectLateNight returns either late-night event or null based on current hour", () => {
