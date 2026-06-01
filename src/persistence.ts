@@ -7,9 +7,21 @@ import * as path from "node:path";
 import * as os from "node:os";
 import type { Emotion, PersistentEmotionSnapshot, PersistentState } from "./types.js";
 
-const STATE_FILE = path.join(os.homedir(), ".pi", "agent", "mood-state.json");
-const LOCK_DIR = path.join(os.homedir(), ".pi", "agent", "mood-state.lock");
-const LOCK_OWNER_FILE = path.join(LOCK_DIR, "owner.json");
+function userHomeDir(): string {
+  return process.env.HOME || os.homedir();
+}
+
+function stateFile(): string {
+  return path.join(userHomeDir(), ".pi", "agent", "mood-state.json");
+}
+
+function lockDir(): string {
+  return path.join(userHomeDir(), ".pi", "agent", "mood-state.lock");
+}
+
+function lockOwnerFile(): string {
+  return path.join(lockDir(), "owner.json");
+}
 const FUTURE_INTERACTION_TOLERANCE_MS = 5 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 3000;
 const STALE_LOCK_MS = 30_000;
@@ -154,7 +166,7 @@ function normalizePersistentState(state: PersistentState, now: number = Date.now
 
 function readStateFile(): PersistentState | null {
   try {
-    const raw = fs.readFileSync(STATE_FILE, "utf-8");
+    const raw = fs.readFileSync(stateFile(), "utf-8");
     const data = JSON.parse(raw);
     return parsePersistentState(data);
   } catch {}
@@ -162,12 +174,13 @@ function readStateFile(): PersistentState | null {
 }
 
 async function writeStateFileAtomically(state: PersistentState): Promise<void> {
-  const dir = path.dirname(STATE_FILE);
-  const tmp = path.join(dir, `.${path.basename(STATE_FILE)}.${process.pid}.${Date.now()}.tmp`);
+  const filePath = stateFile();
+  const dir = path.dirname(filePath);
+  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
   await fsp.mkdir(dir, { recursive: true });
   try {
     await fsp.writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
-    await fsp.rename(tmp, STATE_FILE);
+    await fsp.rename(tmp, filePath);
   } catch (err) {
     await fsp.rm(tmp, { force: true }).catch(() => {});
     throw err;
@@ -234,7 +247,7 @@ function parseLockOwner(data: unknown): LockOwner | null {
 }
 
 async function readLockOwner(): Promise<LockOwner | null> {
-  const ownerRaw = await fsp.readFile(LOCK_OWNER_FILE, "utf-8");
+  const ownerRaw = await fsp.readFile(lockOwnerFile(), "utf-8");
   return parseLockOwner(JSON.parse(ownerRaw));
 }
 
@@ -243,15 +256,15 @@ async function clearStaleLockIfNeeded(now: number = Date.now()): Promise<void> {
     const owner = await readLockOwner();
     if (!owner) throw new Error("Invalid lock owner");
     if (!isProcessAlive(owner.pid)) {
-      await fsp.rm(LOCK_DIR, { recursive: true, force: true });
+      await fsp.rm(lockDir(), { recursive: true, force: true });
     }
     return;
   } catch {}
 
   try {
-    const stat = await fsp.stat(LOCK_DIR);
+    const stat = await fsp.stat(lockDir());
     if (now - stat.mtimeMs > STALE_LOCK_MS) {
-      await fsp.rm(LOCK_DIR, { recursive: true, force: true });
+      await fsp.rm(lockDir(), { recursive: true, force: true });
     }
   } catch {}
 }
@@ -260,7 +273,7 @@ async function releaseStateLock(owner: LockOwner): Promise<void> {
   try {
     const current = await readLockOwner();
     if (current?.pid === owner.pid && current.token === owner.token) {
-      await fsp.rm(LOCK_DIR, { recursive: true, force: true });
+      await fsp.rm(lockDir(), { recursive: true, force: true });
     }
   } catch (err) {
     if (isErrnoException(err) && err.code === "ENOENT") return;
@@ -270,20 +283,21 @@ async function releaseStateLock(owner: LockOwner): Promise<void> {
 
 async function acquireStateLock(): Promise<() => Promise<void>> {
   const startedAt = Date.now();
-  await fsp.mkdir(path.dirname(LOCK_DIR), { recursive: true });
+  const dir = lockDir();
+  await fsp.mkdir(path.dirname(dir), { recursive: true });
 
   while (true) {
     try {
-      await fsp.mkdir(LOCK_DIR);
+      await fsp.mkdir(dir);
       const owner = createLockOwner();
       try {
         await fsp.writeFile(
-          LOCK_OWNER_FILE,
+          lockOwnerFile(),
           JSON.stringify(owner, null, 2),
           "utf-8",
         );
       } catch (err) {
-        await fsp.rm(LOCK_DIR, { recursive: true, force: true }).catch(() => {});
+        await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
         throw err;
       }
       return () => releaseStateLock(owner);
