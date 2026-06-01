@@ -68,7 +68,7 @@ export class MoodEngine {
     const modulatedForce = this.modulateForce(event);
 
     // 2. 沿轮盘滑向目标角度
-    this.slideTowardAngle(event.targetAngle, modulatedForce);
+    this.slideTowardAngle(event, modulatedForce);
 
     // 3. 记录历史
     const currentEmotion = nearestEmotion(this.state.angle);
@@ -151,8 +151,13 @@ export class MoodEngine {
   // 沿轮盘滑动 (核心过渡 — 一次事件最多跨 45°)
   // ==============================================================
 
-  private slideTowardAngle(targetAngle: number, force: number): void {
-    const arc = this.shortestArc(this.state.angle, targetAngle);
+  private slideTowardAngle(event: EmotionalEvent, force: number): void {
+    let arc = this.shortestArc(this.state.angle, event.targetAngle);
+    const isOpposite = Math.abs(Math.abs(arc) - 180) < 0.000001;
+    if (isOpposite && event.valence === "negative") {
+      arc = this.negativeOppositeArc();
+    }
+
     const absArc = Math.abs(arc);
     if (absArc < 1) {
       // 已在目标区域 → 强化强度
@@ -160,8 +165,9 @@ export class MoodEngine {
       return;
     }
 
-    // 最大单步移动 = 45° (一个相邻情绪)
-    const maxStep = Math.min(45, absArc * force * 2);
+    // 最大单步移动 = 45° (一个相邻情绪)；用户纠错从正向对跖点被拉回时允许更明显的首跳。
+    const maxSingleStep = isOpposite && event.trigger === "user_correction" ? 90 : 45;
+    const maxStep = Math.min(maxSingleStep, absArc * force * 2);
     const step = Math.min(absArc, Math.max(5, maxStep));
 
     // 若向对立方向移动，衰减加速
@@ -174,7 +180,7 @@ export class MoodEngine {
     this.state.angle = ((this.state.angle + step * direction) % 360 + 360) % 360;
 
     // 到达目标区域后累积强度
-    const remaining = this.shortestArc(this.state.angle, targetAngle);
+    const remaining = this.shortestArc(this.state.angle, event.targetAngle);
     if (Math.abs(remaining) < 22.5) {
       this.state.intensity = Math.min(1, this.state.intensity + force * 0.35);
     }
@@ -190,6 +196,22 @@ export class MoodEngine {
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
     return diff;
+  }
+
+  /**
+   * 对跖点没有唯一最短路径。负向事件应优先穿过悲伤/厌恶/愤怒侧，
+   * 避免 joy→sadness 时经过 trust 这种语义反直觉路线。
+   */
+  private negativeOppositeArc(): 180 | -180 {
+    const coreNegative = new Set<Emotion>(["sadness", "disgust", "anger"]);
+    const clockwiseMidpointEmotion = nearestEmotion(this.state.angle + 90);
+    const counterClockwiseMidpointEmotion = nearestEmotion(this.state.angle - 90);
+    const clockwiseIsNegative = coreNegative.has(clockwiseMidpointEmotion);
+    const counterClockwiseIsNegative = coreNegative.has(counterClockwiseMidpointEmotion);
+
+    if (counterClockwiseIsNegative && !clockwiseIsNegative) return -180;
+    if (clockwiseIsNegative && !counterClockwiseIsNegative) return 180;
+    return -180;
   }
 
   // ==============================================================

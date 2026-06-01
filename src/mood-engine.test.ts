@@ -107,6 +107,34 @@ test("setEmotion records history snapshot", () => {
   assert.equal(snapshot.trigger, "manual_set");
 });
 
+test("negative correction from joy avoids the trust-side route", () => {
+  const engine = createEngine();
+  engine.setEmotion("joy", 1, "manual_set");
+
+  engine.processEvent({
+    trigger: "user_correction",
+    ...DEFAULT_EMOTION_CONFIG.triggers.user_correction,
+  });
+
+  assert.equal(engine.getCurrentEmotion(), "anger");
+});
+
+test("repeated negative corrections move joy toward sadness through negative emotions", () => {
+  const engine = createEngine();
+  engine.setEmotion("joy", 1, "manual_set");
+
+  const emotions = [];
+  for (let i = 0; i < 3; i++) {
+    engine.processEvent({
+      trigger: "user_correction",
+      ...DEFAULT_EMOTION_CONFIG.triggers.user_correction,
+    });
+    emotions.push(engine.getCurrentEmotion());
+  }
+
+  assert.deepEqual(emotions, ["anger", "disgust", "sadness"]);
+});
+
 test("parseSetEmotionArgs accepts english, chinese, percentage, and decimal intensity", () => {
   assert.deepEqual(parseSetEmotionArgs("anger 80"), {
     ok: true,
