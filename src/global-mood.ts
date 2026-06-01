@@ -3,7 +3,7 @@
 // ============================================================
 import { MoodEngine } from "./mood-engine.js";
 import { readPersistentStateLocked, syncMoodToPersistent, updatePersistentState } from "./persistence.js";
-import type { EmotionalEvent, EmotionChange, PersistentState } from "./types.js";
+import type { EmotionalEvent, Emotion, EmotionChange, PersistentState } from "./types.js";
 
 const MAX_PERSISTENT_HISTORY = 50;
 const SESSION_ID = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -103,6 +103,40 @@ export async function applyGlobalMoodEvent(
 
   if (!change) {
     throw new Error("Global mood event did not produce a change");
+  }
+  return change;
+}
+
+export async function setGlobalMood(
+  engine: MoodEngine,
+  emotion: Emotion,
+  intensity: number,
+  trigger: string,
+): Promise<EmotionChange> {
+  let change: EmotionChange | null = null;
+
+  try {
+    const next = await updatePersistentState((persistent) => {
+      replaceEnginePersistent(engine, persistent);
+      restoreEngineFromPersistent(engine);
+      change = engine.setEmotion(emotion, intensity, trigger);
+      syncMoodToPersistent(engine);
+      appendLatestHistorySnapshot(engine);
+      return engine.persistent;
+    });
+
+    replaceEnginePersistent(engine, next);
+    restoreEngineFromPersistent(engine);
+  } catch (err) {
+    console.error("[pi-persona] 设置全局心情失败，已降级为本地更新:", err);
+    if (!change) {
+      change = engine.setEmotion(emotion, intensity, trigger);
+      syncMoodToPersistent(engine);
+    }
+  }
+
+  if (!change) {
+    throw new Error("Global mood set did not produce a change");
   }
   return change;
 }

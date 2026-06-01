@@ -122,9 +122,20 @@ Timezone: Asia/Shanghai
 
 | Command           | Description                                    |
 | ----------------- | ---------------------------------------------- |
-| `/persona`        | View the current soul and emotion state        |
-| `/persona status` | Same as `/persona`                             |
-| `/persona reload` | Reload `SOUL.md`, `IDENTIFY.md`, and `USER.md` |
+| `/persona`                             | View the current soul and emotion state        |
+| `/persona status`                      | Same as `/persona`                             |
+| `/persona reload`                      | Reload `SOUL.md`, `IDENTIFY.md`, and `USER.md` |
+| `/persona set <emotion> <intensity>`   | Directly set the current emotion and intensity |
+
+Examples:
+
+```bash
+/persona set anger 80
+/persona set joy 0.6
+/persona set 喜悦 70%
+```
+
+Supported emotions: `joy`, `trust`, `fear`, `surprise`, `sadness`, `disgust`, `anger`, and `anticipation`. Chinese labels such as `喜悦` and `愤怒` are also accepted. Intensity accepts `0-1`, `0-100`, or percentages.
 
 `/persona` opens an overlay showing:
 

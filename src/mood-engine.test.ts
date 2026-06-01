@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { MoodEngine } from "./mood-engine.js";
 import { DEFAULT_EMOTION_CONFIG, type PersistentState, type SoulDefinition } from "./types.js";
+import { parseSetEmotionArgs } from "./commands.js";
 
 function createPersistentState(): PersistentState {
   return {
@@ -71,4 +72,61 @@ test("tick gradually decays intensity from above baseline", () => {
   assert.ok(engine.state.intensity < before);
   assert.ok(engine.state.intensity > 0.15);
   assert.equal(engine.state.angle, 270);
+});
+
+test("setEmotion directly sets emotion angle and intensity", () => {
+  const engine = createEngine();
+
+  engine.setEmotion("anger", 0.8, "manual_set");
+
+  assert.equal(engine.state.angle, 270);
+  assert.equal(engine.state.intensity, 0.8);
+  assert.equal(engine.getCurrentEmotion(), "anger");
+});
+
+test("setEmotion clamps intensity", () => {
+  const engine = createEngine();
+
+  engine.setEmotion("joy", -1, "manual_set");
+  assert.equal(engine.state.intensity, 0);
+
+  engine.setEmotion("joy", 2, "manual_set");
+  assert.equal(engine.state.intensity, 1);
+});
+
+test("setEmotion records history snapshot", () => {
+  const engine = createEngine();
+
+  engine.setEmotion("sadness", 0.35, "manual_set");
+
+  const snapshot = engine.state.history.at(-1);
+  assert.ok(snapshot);
+  assert.equal(snapshot.emotion, "sadness");
+  assert.equal(snapshot.angle, 180);
+  assert.equal(snapshot.intensity, 0.35);
+  assert.equal(snapshot.trigger, "manual_set");
+});
+
+test("parseSetEmotionArgs accepts english, chinese, percentage, and decimal intensity", () => {
+  assert.deepEqual(parseSetEmotionArgs("anger 80"), {
+    ok: true,
+    emotion: "anger",
+    intensity: 0.8,
+  });
+  assert.deepEqual(parseSetEmotionArgs("joy 0.6"), {
+    ok: true,
+    emotion: "joy",
+    intensity: 0.6,
+  });
+  assert.deepEqual(parseSetEmotionArgs("喜悦 70%"), {
+    ok: true,
+    emotion: "joy",
+    intensity: 0.7,
+  });
+});
+
+test("parseSetEmotionArgs rejects invalid input", () => {
+  assert.equal(parseSetEmotionArgs("nope 80").ok, false);
+  assert.equal(parseSetEmotionArgs("joy 120").ok, false);
+  assert.equal(parseSetEmotionArgs("joy").ok, false);
 });

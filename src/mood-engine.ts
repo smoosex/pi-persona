@@ -17,6 +17,7 @@ import {
   EMOTION_LEVEL_NAMES,
   COMPOUND_EMOTIONS,
   EMOTION_ENTRIES,
+  EMOTION_ANGLE,
   nearestEmotion,
   intensityLevel,
 } from "./types.js";
@@ -100,6 +101,48 @@ export class MoodEngine {
       newAngle: this.state.angle,
       intensityChange: intensityDelta,
       catchphrase: phrase,
+      notify: significantChange,
+    };
+  }
+
+  /** 直接设置当前情绪坐标，用于显式用户命令，不经过轮盘滑动。 */
+  setEmotion(emotion: Emotion, intensity: number, trigger: string): EmotionChange {
+    const now = Date.now();
+    this.tick(now);
+
+    const prevAngle = this.state.angle;
+    const prevIntensity = this.state.intensity;
+
+    this.state.angle = EMOTION_ANGLE[emotion];
+    this.state.intensity = Math.min(1, Math.max(0, intensity));
+
+    const level = intensityLevel(this.state.intensity);
+    const compound = this.getCompoundLabel();
+    this.state.history.push({
+      angle: this.state.angle,
+      intensity: this.state.intensity,
+      emotion,
+      level,
+      compound,
+      timestamp: now,
+      trigger,
+    });
+    if (this.state.history.length > 50) {
+      this.state.history = this.state.history.slice(-50);
+    }
+    this.persistent.lastInteraction = now;
+
+    const angleDelta = this.shortestArc(prevAngle, this.state.angle);
+    const intensityDelta = this.state.intensity - prevIntensity;
+    const significantChange =
+      Math.abs(angleDelta) >= 22.5 ||
+      Math.abs(intensityDelta) >= 0.15;
+
+    return {
+      previousAngle: prevAngle,
+      newAngle: this.state.angle,
+      intensityChange: intensityDelta,
+      catchphrase: this.getCurrentEntry().phrase,
       notify: significantChange,
     };
   }

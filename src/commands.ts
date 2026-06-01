@@ -7,13 +7,14 @@ import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@ea
 import { MoodEngine } from "./mood-engine.js";
 import { invalidateSoulCache, loadSoul } from "./soul-loader.js";
 import { restorePersistentState } from "./persistence.js";
-import { refreshGlobalMood } from "./global-mood.js";
+import { refreshGlobalMood, setGlobalMood } from "./global-mood.js";
 import { getFooterStatusText } from "./footer.js";
 import {
   DEFAULT_EMOTION_CONFIG,
   EMOTION_EMOJI,
   EMOTION_LABELS,
 } from "./types.js";
+import type { Emotion } from "./types.js";
 
 export function registerPersonaCommands(
   pi: ExtensionAPI,
@@ -36,6 +37,32 @@ export function registerPersonaCommands(
         }
         await refreshGlobalMood(engine, false);
         await showEmotionDetail(engine, ctx);
+        return;
+      }
+
+      const setMatch = /^set(?:\s+(.*))?$/.exec(arg);
+      if (setMatch) {
+        const engine = getEngine();
+        if (!engine) {
+          ctx.ui.notify(
+            "当前无激活灵魂。请创建 ~/.pi/agent/SOUL.md 后重启会话或执行 /persona reload。",
+            "info",
+          );
+          return;
+        }
+
+        const parsed = parseSetEmotionArgs(setMatch[1] ?? "");
+        if (!parsed.ok) {
+          ctx.ui.notify(parsed.message, "warning");
+          return;
+        }
+
+        await setGlobalMood(engine, parsed.emotion, parsed.intensity, "manual_set");
+        if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(engine));
+        ctx.ui.notify(
+          `已设置情绪: ${EMOTION_EMOJI[parsed.emotion]} ${EMOTION_LABELS[parsed.emotion]} / ${Math.round(parsed.intensity * 100)}%`,
+          "info",
+        );
         return;
       }
 
@@ -76,7 +103,7 @@ export function registerPersonaCommands(
       }
 
       ctx.ui.notify(
-        "未知用法。可用命令: /persona、/persona status、/persona reload",
+        "未知用法。可用命令: /persona、/persona status、/persona reload、/persona set <emotion> <intensity>",
         "warning",
       );
     },
@@ -86,6 +113,72 @@ export function registerPersonaCommands(
 // ============================================================== 
 // Helpers
 // ============================================================== 
+
+const EMOTION_ALIASES: Record<string, Emotion> = {
+  joy: "joy",
+  喜悦: "joy",
+  trust: "trust",
+  信任: "trust",
+  fear: "fear",
+  恐惧: "fear",
+  surprise: "surprise",
+  惊讶: "surprise",
+  sadness: "sadness",
+  悲伤: "sadness",
+  disgust: "disgust",
+  厌恶: "disgust",
+  anger: "anger",
+  愤怒: "anger",
+  anticipation: "anticipation",
+  期待: "anticipation",
+};
+
+const SET_USAGE = "用法: /persona set <emotion> <intensity>，例如 /persona set anger 80";
+const AVAILABLE_EMOTIONS = "可用情绪: joy, trust, fear, surprise, sadness, disgust, anger, anticipation（也支持中文标签）";
+
+export type ParseSetEmotionResult =
+  | { ok: true; emotion: Emotion; intensity: number }
+  | { ok: false; message: string };
+
+export function parseSetEmotionArgs(input: string): ParseSetEmotionResult {
+  const parts = input.trim().split(/\s+/).filter(Boolean);
+  if (parts.length !== 2) {
+    return { ok: false, message: SET_USAGE };
+  }
+
+  const emotion = EMOTION_ALIASES[parts[0].toLowerCase()] ?? EMOTION_ALIASES[parts[0]];
+  if (!emotion) {
+    return { ok: false, message: `未知情绪。${AVAILABLE_EMOTIONS}` };
+  }
+
+  const intensity = parseIntensity(parts[1]);
+  if (intensity === null) {
+    return { ok: false, message: "强度必须是 0-1、0-100 或百分比，例如 0.7、70、70%" };
+  }
+
+  return { ok: true, emotion, intensity };
+}
+
+function parseIntensity(input: string): number | null {
+  const raw = input.trim();
+  if (!raw) return null;
+
+  const isPercent = raw.endsWith("%");
+  const numericPart = isPercent ? raw.slice(0, -1) : raw;
+  if (!/^\d+(?:\.\d+)?$/.test(numericPart)) return null;
+
+  const value = Number(numericPart);
+  if (!Number.isFinite(value)) return null;
+
+  if (isPercent) {
+    if (value < 0 || value > 100) return null;
+    return value / 100;
+  }
+
+  if (value >= 0 && value <= 1) return value;
+  if (value >= 0 && value <= 100) return value / 100;
+  return null;
+}
 
 async function showEmotionDetail(engine: MoodEngine, ctx: ExtensionCommandContext): Promise<void> {
   await ctx.ui.custom<void>(
