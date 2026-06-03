@@ -153,6 +153,7 @@ export interface PersistentState {
   lastInteraction: number;
   lastAngle: number;
   lastIntensity: number;
+  emotionUpdatesEnabled: boolean;
   nextHistorySequence: number;
   history: PersistentEmotionSnapshot[];
 }

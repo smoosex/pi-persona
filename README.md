@@ -20,6 +20,7 @@ pi install npm:@smoose/pi-persona
 - **Cross-session persistence**: stores mood state in `~/.pi/agent/mood-state.json`.
 - **Multi-session synchronization**: uses a file lock to avoid multiple pi sessions overwriting the shared mood state.
 - **Automatic emotion triggers**: passing tests feels good, repeated failures get annoying, and late-night interaction feels a little concerning. Reasonable. Who is debugging at midnight anyway?
+- **Emotion update switch**: use a command to freeze automatic emotion changes while keeping the current emotion in the prompt.
 - **Footer display**: shows the current soul and emotion in the footer.
 - **Interactive commands**: use `/persona` to inspect or reload the soul state.
 
@@ -126,6 +127,9 @@ Timezone: Asia/Shanghai
 | `/persona status`                      | Same as `/persona`                             |
 | `/persona reload`                      | Reload `SOUL.md`, `IDENTIFY.md`, and `USER.md` |
 | `/persona set <emotion> <intensity>`   | Directly set the current emotion and intensity |
+| `/persona emotion status`              | Show whether automatic emotion changes are enabled |
+| `/persona emotion on`                  | Enable automatic emotion changes from events |
+| `/persona emotion off`                 | Disable automatic emotion changes from events |
 
 Examples:
 
@@ -136,6 +140,8 @@ Examples:
 ```
 
 Supported emotions: `joy`, `trust`, `fear`, `surprise`, `sadness`, `disgust`, `anger`, and `anticipation`. Chinese labels such as `喜悦` and `愤怒` are also accepted. Intensity accepts `0-1`, `0-100`, or percentages.
+
+When `/persona emotion off` is active, command results, test status, user feedback, late-night checks, and natural decay no longer change the mood. The system prompt still includes the frozen emotion. `/persona set` continues to work and can manually change that fixed emotion.
 
 `/persona` opens an overlay showing:
 

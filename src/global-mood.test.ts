@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { applyGlobalMoodEvent, refreshGlobalMood, setGlobalMood } from "./global-mood.js";
+import { applyGlobalMoodEvent, refreshGlobalMood, setGlobalEmotionUpdatesEnabled, setGlobalMood } from "./global-mood.js";
 import { MoodEngine } from "./mood-engine.js";
 import { DEFAULT_EMOTION_CONFIG, type PersistentState, type SoulDefinition } from "./types.js";
 
@@ -36,6 +36,7 @@ function createPersistentState(overrides: Partial<PersistentState> = {}): Persis
     lastInteraction: Date.now(),
     lastAngle: 0,
     lastIntensity: 0.15,
+    emotionUpdatesEnabled: true,
     nextHistorySequence: 1,
     history: [],
     ...overrides,
@@ -110,6 +111,34 @@ test("applyGlobalMoodEvent applies event and appends persistent history", async 
     assert.equal(engine.persistent.history.length, 1);
     assert.equal(engine.persistent.history[0]?.trigger, "test_pass");
     assert.equal(engine.persistent.history[0]?.sequence, 1);
+  });
+});
+
+test("applyGlobalMoodEvent does nothing when emotion updates are disabled", async () => {
+  await withTemporaryHome(async () => {
+    const engine = createEngine();
+    await setGlobalEmotionUpdatesEnabled(engine, false);
+
+    const change = await applyGlobalMoodEvent(engine, {
+      trigger: "test_fail",
+      ...DEFAULT_EMOTION_CONFIG.triggers.test_fail,
+    });
+
+    assert.equal(change.notify, false);
+    assert.equal(engine.state.angle, 0);
+    assert.equal(engine.state.intensity, 0.15);
+    assert.equal(engine.persistent.history.length, 0);
+  });
+});
+
+test("setGlobalEmotionUpdatesEnabled persists the switch", async () => {
+  await withTemporaryHome(async (home) => {
+    const engine = createEngine();
+
+    await setGlobalEmotionUpdatesEnabled(engine, false);
+
+    assert.equal(engine.persistent.emotionUpdatesEnabled, false);
+    assert.equal(readState(home).emotionUpdatesEnabled, false);
   });
 });
 

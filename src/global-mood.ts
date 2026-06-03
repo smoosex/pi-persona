@@ -24,6 +24,7 @@ function replaceEnginePersistent(engine: MoodEngine, persistent: PersistentState
   engine.persistent.lastInteraction = persistent.lastInteraction;
   engine.persistent.lastAngle = persistent.lastAngle;
   engine.persistent.lastIntensity = persistent.lastIntensity;
+  engine.persistent.emotionUpdatesEnabled = persistent.emotionUpdatesEnabled;
   engine.persistent.nextHistorySequence = persistent.nextHistorySequence;
   engine.persistent.history = persistent.history;
 }
@@ -85,6 +86,16 @@ export async function applyGlobalMoodEvent(
     const next = await updatePersistentState((persistent) => {
       replaceEnginePersistent(engine, persistent);
       restoreEngineFromPersistent(engine);
+      if (!engine.persistent.emotionUpdatesEnabled) {
+        change = {
+          previousAngle: engine.state.angle,
+          newAngle: engine.state.angle,
+          intensityChange: 0,
+          catchphrase: engine.getEmotionPhrase(),
+          notify: false,
+        };
+        return engine.persistent;
+      }
       change = engine.processEvent(event);
       syncMoodToPersistent(engine);
       appendLatestHistorySnapshot(engine);
@@ -96,8 +107,18 @@ export async function applyGlobalMoodEvent(
   } catch (err) {
     console.error("[pi-persona] 应用全局心情事件失败，已降级为本地更新:", err);
     if (!change) {
-      change = engine.processEvent(event);
-      syncMoodToPersistent(engine);
+      if (!engine.persistent.emotionUpdatesEnabled) {
+        change = {
+          previousAngle: engine.state.angle,
+          newAngle: engine.state.angle,
+          intensityChange: 0,
+          catchphrase: engine.getEmotionPhrase(),
+          notify: false,
+        };
+      } else {
+        change = engine.processEvent(event);
+        syncMoodToPersistent(engine);
+      }
     }
   }
 
@@ -139,4 +160,29 @@ export async function setGlobalMood(
     throw new Error("Global mood set did not produce a change");
   }
   return change;
+}
+
+export async function setGlobalEmotionUpdatesEnabled(
+  engine: MoodEngine,
+  enabled: boolean,
+): Promise<boolean> {
+  try {
+    const next = await updatePersistentState((persistent) => {
+      replaceEnginePersistent(engine, persistent);
+      restoreEngineFromPersistent(engine);
+      syncMoodToPersistent(engine);
+      engine.persistent.emotionUpdatesEnabled = enabled;
+      engine.persistent.lastInteraction = Date.now();
+      return engine.persistent;
+    });
+
+    replaceEnginePersistent(engine, next);
+    restoreEngineFromPersistent(engine);
+  } catch (err) {
+    console.error("[pi-persona] 设置情绪变化开关失败，已降级为本地更新:", err);
+    engine.persistent.emotionUpdatesEnabled = enabled;
+    engine.persistent.lastInteraction = Date.now();
+  }
+
+  return engine.persistent.emotionUpdatesEnabled;
 }

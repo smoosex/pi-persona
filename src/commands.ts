@@ -7,7 +7,7 @@ import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@ea
 import { MoodEngine } from "./mood-engine.js";
 import { invalidateSoulCache, loadSoul } from "./soul-loader.js";
 import { restorePersistentState } from "./persistence.js";
-import { refreshGlobalMood, setGlobalMood } from "./global-mood.js";
+import { refreshGlobalMood, setGlobalEmotionUpdatesEnabled, setGlobalMood } from "./global-mood.js";
 import { getFooterStatusText } from "./footer.js";
 import {
   DEFAULT_EMOTION_CONFIG,
@@ -66,6 +66,42 @@ export function registerPersonaCommands(
         return;
       }
 
+      const emotionMatch = /^emotion(?:\s+(.*))?$/.exec(arg);
+      if (emotionMatch) {
+        const engine = getEngine();
+        if (!engine) {
+          ctx.ui.notify(
+            "当前无激活灵魂。请创建 ~/.pi/agent/SOUL.md 后重启会话或执行 /persona reload。",
+            "info",
+          );
+          return;
+        }
+
+        const action = (emotionMatch[1] ?? "status").trim().toLowerCase();
+        if (!action || action === "status") {
+          await refreshGlobalMood(engine, false);
+          const status = engine.persistent.emotionUpdatesEnabled ? "开启" : "关闭";
+          ctx.ui.notify(`情绪变化当前为${status}。`, "info");
+          return;
+        }
+
+        if (action !== "on" && action !== "off") {
+          ctx.ui.notify("用法: /persona emotion on|off|status", "warning");
+          return;
+        }
+
+        const enabled = action === "on";
+        await setGlobalEmotionUpdatesEnabled(engine, enabled);
+        if (ctx.hasUI) ctx.ui.setStatus("soul-mood", getFooterStatusText(engine));
+        ctx.ui.notify(
+          enabled
+            ? "已开启情绪变化。事件会继续影响情绪。"
+            : "已关闭情绪变化。事件不会再影响情绪，/persona set 仍可手动修改。",
+          "info",
+        );
+        return;
+      }
+
       if (arg === "reload") {
         invalidateSoulCache();
         const soul = loadSoul({
@@ -103,7 +139,7 @@ export function registerPersonaCommands(
       }
 
       ctx.ui.notify(
-        "未知用法。可用命令: /persona、/persona status、/persona reload、/persona set <emotion> <intensity>",
+        "未知用法。可用命令: /persona、/persona status、/persona reload、/persona set <emotion> <intensity>、/persona emotion on|off|status",
         "warning",
       );
     },
@@ -266,6 +302,7 @@ class PersonaOverlay implements Component {
 
     const emotionLabel = `${EMOTION_EMOJI[emo]} ${EMOTION_LABELS[emo]} / L${level} ${levelName}`;
     labeledRows("情绪:", emotionLabel);
+    labeledRows("变化:", this.engine.persistent.emotionUpdatesEnabled ? "开启" : "关闭", "muted");
 
     const compLabel = compound ?? "无";
     labeledRows("复合:", compLabel, "muted");

@@ -11,6 +11,7 @@ function createPersistentState(): PersistentState {
     lastInteraction: Date.now(),
     lastAngle: 0,
     lastIntensity: 0.15,
+    emotionUpdatesEnabled: true,
     nextHistorySequence: 1,
     history: [],
   };

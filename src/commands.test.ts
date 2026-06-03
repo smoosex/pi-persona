@@ -46,6 +46,7 @@ function createPersistentState(): PersistentState {
     lastInteraction: Date.now(),
     lastAngle: 0,
     lastIntensity: 0.15,
+    emotionUpdatesEnabled: true,
     nextHistorySequence: 1,
     history: [],
   };
@@ -168,6 +169,33 @@ test("persona set reports invalid arguments", async () => {
 
   assert.match(notifications[0]?.message ?? "", /强度必须/);
   assert.equal(notifications[0]?.level, "warning");
+});
+
+test("persona emotion off disables automatic emotion updates", async () => {
+  await withTemporaryHome(async () => {
+    const engine = createEngine();
+    const harness = registerHarness(engine);
+    const { ctx, notifications } = createContext();
+
+    await harness.command.handler("emotion off", ctx);
+
+    assert.equal(engine.persistent.emotionUpdatesEnabled, false);
+    assert.match(notifications[0]?.message ?? "", /已关闭情绪变化/);
+  });
+});
+
+test("persona emotion on enables automatic emotion updates", async () => {
+  await withTemporaryHome(async () => {
+    const engine = createEngine();
+    engine.persistent.emotionUpdatesEnabled = false;
+    const harness = registerHarness(engine);
+    const { ctx, notifications } = createContext();
+
+    await harness.command.handler("emotion on", ctx);
+
+    assert.equal(engine.persistent.emotionUpdatesEnabled, true);
+    assert.match(notifications[0]?.message ?? "", /已开启情绪变化/);
+  });
 });
 
 test("persona reload disables soul when SOUL.md is missing", async () => {

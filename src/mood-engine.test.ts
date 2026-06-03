@@ -11,6 +11,7 @@ function createPersistentState(): PersistentState {
     lastInteraction: Date.now(),
     lastAngle: 0,
     lastIntensity: 0.15,
+    emotionUpdatesEnabled: true,
     nextHistorySequence: 1,
     history: [],
   };
@@ -59,6 +60,18 @@ test("tick gradually restores intensity from below baseline", () => {
 
   assert.ok(engine.state.intensity > before);
   assert.ok(engine.state.intensity < 0.15);
+});
+
+test("tick keeps intensity fixed when emotion updates are disabled", () => {
+  const engine = createEngine();
+  engine.persistent.emotionUpdatesEnabled = false;
+  const lastInteraction = Date.now() - 60_000;
+
+  engine.restoreState(45, 0.9, lastInteraction);
+  engine.tick(lastInteraction + 1_000);
+
+  assert.equal(engine.state.angle, 45);
+  assert.equal(engine.state.intensity, 0.9);
 });
 
 test("tick gradually decays intensity from above baseline", () => {

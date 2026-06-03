@@ -144,6 +144,7 @@ function parsePersistentState(data: unknown, now: number = Date.now()): Persiste
     lastInteraction,
     lastAngle: normalizeAngle(state.lastAngle),
     lastIntensity: clamp(state.lastIntensity, 0, 1),
+    emotionUpdatesEnabled: typeof state.emotionUpdatesEnabled === "boolean" ? state.emotionUpdatesEnabled : true,
     nextHistorySequence,
     history,
   };
@@ -155,6 +156,7 @@ function defaultPersistentState(now: number = Date.now()): PersistentState {
     lastInteraction: now,
     lastAngle: 0,
     lastIntensity: 0.15,
+    emotionUpdatesEnabled: true,
     nextHistorySequence: 1,
     history: [],
   };

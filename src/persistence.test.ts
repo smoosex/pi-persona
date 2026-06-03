@@ -49,6 +49,7 @@ function createState(overrides: Partial<PersistentState> = {}): PersistentState 
     lastInteraction: Date.now(),
     lastAngle: 0,
     lastIntensity: 0.15,
+    emotionUpdatesEnabled: true,
     nextHistorySequence: 1,
     history: [],
     ...overrides,
@@ -62,6 +63,7 @@ test("restorePersistentState returns defaults when state file is missing", async
     assert.equal(state.version, 2);
     assert.equal(state.lastAngle, 0);
     assert.equal(state.lastIntensity, 0.15);
+    assert.equal(state.emotionUpdatesEnabled, true);
     assert.equal(state.nextHistorySequence, 1);
     assert.deepEqual(state.history, []);
   });
@@ -75,6 +77,7 @@ test("restorePersistentState normalizes persisted angle, intensity, and history"
       lastInteraction: now,
       lastAngle: -90,
       lastIntensity: 2,
+      emotionUpdatesEnabled: false,
       nextHistorySequence: 1,
       history: [
         {
@@ -106,6 +109,7 @@ test("restorePersistentState normalizes persisted angle, intensity, and history"
 
     assert.equal(state.lastAngle, 270);
     assert.equal(state.lastIntensity, 1);
+    assert.equal(state.emotionUpdatesEnabled, false);
     assert.equal(state.nextHistorySequence, 3);
     assert.deepEqual(
       state.history.map((snap) => [snap.id, snap.angle, snap.intensity]),

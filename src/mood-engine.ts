@@ -265,6 +265,11 @@ export class MoodEngine {
   private static readonly BASELINE = 0.15; // 情绪自然静息强度
 
   tick(now: number = Date.now()): void {
+    if (!this.persistent.emotionUpdatesEnabled) {
+      this.lastTick = now;
+      return;
+    }
+
     const elapsed = (now - this.lastTick) / 1000;
     if (elapsed <= 0) return;
     this.lastTick = now;
