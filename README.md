@@ -12,12 +12,12 @@ pi install npm:@smoose/pi-persona
 
 ## Features
 
-- **Soul prompt injection**: reads persona text from `~/.pi/agent/SOUL.md`.
-- **Identity and traits**: reads name, emoji, description, and trait values from `~/.pi/agent/IDENTIFY.md`.
-- **User preference context**: reads user-maintained context from `~/.pi/agent/USER.md`.
+- **Soul prompt injection**: reads persona text from `SOUL.md` in the pi agent directory.
+- **Identity and traits**: reads name, emoji, description, and trait values from `IDENTIFY.md`.
+- **User preference context**: reads user-maintained context from `USER.md`.
 - **Emotion wheel model**: based on Plutchik's 8 basic emotions: joy, trust, fear, surprise, sadness, disgust, anger, and anticipation.
 - **Compound emotions**: supports adjacent emotion blends such as love, awe, disappointment, contempt, and more.
-- **Cross-session persistence**: stores mood state in `~/.pi/agent/mood-state.json`.
+- **Cross-session persistence**: stores mood state in `mood-state.json`, beside the other files.
 - **Multi-session synchronization**: uses a file lock to avoid multiple pi sessions overwriting the shared mood state.
 - **Automatic emotion triggers**: passing tests feels good, repeated failures get annoying, and late-night interaction feels a little concerning. Reasonable. Who is debugging at midnight anyway?
 - **Emotion update switch**: use a command to freeze automatic emotion changes while keeping the current emotion in the prompt.
@@ -26,10 +26,12 @@ pi install npm:@smoose/pi-persona
 
 ## Configuration Files
 
-`pi-persona` only reads the user-level configuration directory:
+`pi-persona` reads pi's agent directory — `~/.pi/agent` by default, or wherever
+`PI_CODING_AGENT_DIR` points, the same directory pi loads its own settings,
+extensions and skills from:
 
 ```text
-~/.pi/agent/
+<agent directory>/
 ├── SOUL.md       # Required: soul/persona body
 ├── IDENTIFY.md   # Optional: identity info and trait values
 └── USER.md       # Optional: user profile and preference context
@@ -193,14 +195,18 @@ src/types.ts              # type definitions and default emotion config
 The extension reads:
 
 ```text
-~/.pi/agent/SOUL.md
-~/.pi/agent/IDENTIFY.md
-~/.pi/agent/USER.md
+<agent directory>/SOUL.md
+<agent directory>/IDENTIFY.md
+<agent directory>/USER.md
 ```
 
 The extension writes:
 
 ```text
-~/.pi/agent/mood-state.json
-~/.pi/agent/mood-state.lock/
+<agent directory>/mood-state.json
+<agent directory>/mood-state.lock/
 ```
+
+The agent directory is `~/.pi/agent` unless `PI_CODING_AGENT_DIR` is set, in
+which case it follows pi. Each agent directory therefore keeps its own persona
+and its own mood.
