@@ -15,8 +15,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { updatePersistentState } from "./persistence.js";
+import { restorePersistentState, updatePersistentState } from "./persistence.js";
 import { invalidateSoulCache, loadSoul } from "./soul-loader.js";
+import type { PersistentState } from "./types.js";
 
 interface Dirs {
   /** $HOME, whose .pi/agent must be ignored while the variable is set. */
@@ -56,6 +57,30 @@ async function withBothLocations(fn: (dirs: Dirs) => Promise<void> | void): Prom
 
 /** SOUL.md is prose; the name lives in IDENTIFY.md, so assert on the body. */
 const soulText = (marker: string) => `${marker} body.\n`;
+
+/**
+ * A complete PersistentState, distinguishable by angle.
+ *
+ * Complete matters: a partial object is rejected as invalid and falls back to
+ * the default, so a decoy built from a few fields would prove nothing about
+ * which file was read.
+ */
+function validState(lastAngle: number): PersistentState {
+  return {
+    version: 2,
+    lastInteraction: Date.now(),
+    lastAngle,
+    lastIntensity: 0.5,
+    emotionUpdatesEnabled: true,
+    nextHistorySequence: 1,
+    history: [],
+  };
+}
+
+function writeState(dir: string, state: PersistentState): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "mood-state.json"), JSON.stringify(state, null, 2), "utf-8");
+}
 
 test("PI_CODING_AGENT_DIR outranks HOME when loading the persona", async () => {
   await withBothLocations(({ home, agentDir }) => {
@@ -99,18 +124,24 @@ test("PI_CODING_AGENT_DIR outranks HOME when persisting mood state", async () =>
   });
 });
 
-test("mood state is read back from the agent directory, not HOME", async () => {
-  await withBothLocations(async ({ home, agentDir }) => {
-    writeFileSync(
-      path.join(home, ".pi", "agent", "mood-state.json"),
-      JSON.stringify({ version: 2, lastAngle: 180, lastIntensity: 0.9, history: [] }),
-      "utf-8",
-    );
-    await updatePersistentState((state) => ({ ...state, lastAngle: 45 }));
+test("restorePersistentState reads the agent directory, not HOME", async () => {
+  // Both locations hold a *valid* state, differing only in angle, and both
+  // exist before the read. That is what makes this a read test: with only one
+  // populated, or with an invalid decoy, the default state is returned and the
+  // assertion would hold no matter which file was consulted.
+  await withBothLocations(({ home, agentDir }) => {
+    writeState(path.join(home, ".pi", "agent"), validState(180));
+    writeState(agentDir, validState(45));
 
-    const raw = JSON.parse(readFileSync(path.join(agentDir, "mood-state.json"), "utf-8")) as {
-      lastAngle: number;
-    };
-    assert.equal(raw.lastAngle, 45, "the HOME copy must not have seeded this");
+    assert.equal(restorePersistentState().lastAngle, 45);
+  });
+});
+
+test("a valid state in HOME is not read when the agent directory has none", async () => {
+  // The other half: no silent fallback to the operator's mood.
+  await withBothLocations(({ home }) => {
+    writeState(path.join(home, ".pi", "agent"), validState(180));
+
+    assert.notEqual(restorePersistentState().lastAngle, 180, "HOME must not be consulted");
   });
 });

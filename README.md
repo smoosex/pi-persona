@@ -224,5 +224,5 @@ Set the environment variable as well, and the two agree:
 
 ```ts
 process.env.PI_CODING_AGENT_DIR = agentDir;
-const session = await createAgentSession({ agentDir, /* … */ });
+const { session } = await createAgentSession({ agentDir, /* … */ });
 ```
