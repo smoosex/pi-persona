@@ -210,3 +210,19 @@ The extension writes:
 The agent directory is `~/.pi/agent` unless `PI_CODING_AGENT_DIR` is set, in
 which case it follows pi. Each agent directory therefore keeps its own persona
 and its own mood.
+
+### Embedding pi
+
+The location comes from pi's `getAgentDir()`, which reads `PI_CODING_AGENT_DIR`
+and otherwise falls back to `~/.pi/agent`. It does **not** see an `agentDir`
+passed programmatically to `createAgentSession`: that steers pi's own loading
+but not this call, so an embedder which sets only the option gets a session
+whose settings come from one directory and whose persona and mood come from
+another.
+
+Set the environment variable as well, and the two agree:
+
+```ts
+process.env.PI_CODING_AGENT_DIR = agentDir;
+const session = await createAgentSession({ agentDir, /* … */ });
+```
