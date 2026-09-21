@@ -1,6 +1,6 @@
 {
   "name": "@smoose/pi-persona",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A pi extension that adds persistent persona and emotional state to your coding agent",
   "type": "module",
   "scripts": {
