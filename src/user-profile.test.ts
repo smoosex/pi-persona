@@ -10,10 +10,14 @@ import { DEFAULT_EMOTION_CONFIG, type PersistentState, type SoulDefinition } fro
 
 function withTemporaryHome(fn: (home: string) => void): void {
   const originalHome = process.env.HOME;
+  const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
   const home = mkdtempSync(path.join(tmpdir(), "pi-persona-home-"));
 
   try {
     process.env.HOME = home;
+    // The agent directory wins over HOME, so a developer with it exported
+    // would otherwise run these against their real one.
+    delete process.env.PI_CODING_AGENT_DIR;
     invalidateSoulCache();
     fn(home);
   } finally {
@@ -22,6 +26,11 @@ function withTemporaryHome(fn: (home: string) => void): void {
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+    if (originalAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = originalAgentDir;
     }
     rmSync(home, { recursive: true, force: true });
   }

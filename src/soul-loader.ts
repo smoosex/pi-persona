@@ -1,12 +1,13 @@
 // ============================================================
 // pi-persona — 灵魂加载器
-// 自定义方式: ~/.pi/agent/IDENTIFY.md（元数据）+ ~/.pi/agent/SOUL.md（散文正文）
-//             + ~/.pi/agent/USER.md（用户自愿维护的偏好与上下文）
-// 只读取用户级 ~/.pi/agent/；如果该位置没有 SOUL.md，则不加载/注入灵魂
+// 自定义方式: <agentDir>/IDENTIFY.md（元数据）+ <agentDir>/SOUL.md（散文正文）
+//             + <agentDir>/USER.md（用户自愿维护的偏好与上下文）
+// agentDir 由 pi 的 getAgentDir() 决定：PI_CODING_AGENT_DIR，否则 ~/.pi/agent
+// 如果该位置没有 SOUL.md，则不加载/注入灵魂
 // ============================================================
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import matter from "gray-matter";
 import type { SoulDefinition, SoulTraits } from "./types.js";
 import { DEFAULT_TRAITS } from "./types.js";
@@ -31,20 +32,16 @@ interface SoulCacheStamp {
 // 文件路径
 // ==============================================================
 
-function userHomeDir(): string {
-  return process.env.HOME || os.homedir();
-}
-
 function userIdentifyFile(): string {
-  return path.join(userHomeDir(), ".pi", "agent", "IDENTIFY.md");
+  return path.join(getAgentDir(), "IDENTIFY.md");
 }
 
 function userSoulFile(): string {
-  return path.join(userHomeDir(), ".pi", "agent", "SOUL.md");
+  return path.join(getAgentDir(), "SOUL.md");
 }
 
 function userProfileFile(): string {
-  return path.join(userHomeDir(), ".pi", "agent", "USER.md");
+  return path.join(getAgentDir(), "USER.md");
 }
 
 function getFileStamp(filePath: string): FileStamp {

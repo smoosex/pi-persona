@@ -4,19 +4,15 @@
 import * as fs from "node:fs";
 import { promises as fsp } from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { Emotion, PersistentEmotionSnapshot, PersistentState } from "./types.js";
 
-function userHomeDir(): string {
-  return process.env.HOME || os.homedir();
-}
-
 function stateFile(): string {
-  return path.join(userHomeDir(), ".pi", "agent", "mood-state.json");
+  return path.join(getAgentDir(), "mood-state.json");
 }
 
 function lockDir(): string {
-  return path.join(userHomeDir(), ".pi", "agent", "mood-state.lock");
+  return path.join(getAgentDir(), "mood-state.lock");
 }
 
 function lockOwnerFile(): string {
